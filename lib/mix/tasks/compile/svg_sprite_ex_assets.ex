@@ -96,7 +96,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     inline_refs = collect_project_refs(modules, &inline_refs/1)
     inline_sources = load_inline_sources(inline_refs, source_root)
     sprite_metadata = build_sprite_metadata(sprite_refs, build_path, public_path, source_root)
-    inline_svg_infos = build_inline_svg_infos(inline_refs, source_root)
+    inline_svg_infos = build_inline_svg_infos(inline_sources)
     sprite_builds = build_sprite_outputs(sprite_metadata, source_root)
 
     File.mkdir_p!(build_path)
@@ -225,11 +225,11 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     end)
   end
 
-  defp build_inline_svg_infos(inline_refs, source_root) do
-    Enum.map(inline_refs, fn name ->
+  defp build_inline_svg_infos(inline_sources) do
+    Enum.map(inline_sources, fn %Source{name: name, file_path: file_path} ->
       %InlineSvgMeta{
         name: name,
-        source_path: Source.source_file_path!(name, source_root)
+        source_path: file_path
       }
     end)
   end
