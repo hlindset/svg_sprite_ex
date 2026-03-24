@@ -107,10 +107,12 @@ defmodule SvgSpriteEx do
   end
 
   defp with_registry(module, function_name, args, default) do
-    if Code.ensure_loaded?(module) and function_exported?(module, function_name, length(args)) do
-      apply(module, function_name, args)
-    else
-      default
+    case Code.ensure_loaded(module) do
+      {:module, ^module} ->
+        apply(module, function_name, args)
+
+      {:error, _reason} ->
+        default
     end
   end
 end
