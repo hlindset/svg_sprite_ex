@@ -162,18 +162,24 @@ rendering a `<link rel="preload" ...>` tag.
 In a helper or function component:
 
 ```elixir
-def sprite_sheet_preload(assigns) do
-  assigns = assign(assigns, :sheet_meta, SvgSpriteEx.sprite_sheet(assigns.sheet))
+defmodule MyAppWeb.MyComponents do
+  use Phoenix.Component
 
-  ~H"""
-  <link
-    :if={@sheet_meta}
-    rel="preload"
-    href={@sheet_meta.public_path}
-    as="image"
-    type="image/svg+xml"
-  />
-  """
+  attr :sheet, :string, required: true
+
+  def sprite_sheet_preload(assigns) do
+    assigns = assign(assigns, :sheet_meta, SvgSpriteEx.sprite_sheet(assigns.sheet))
+
+    ~H"""
+    <link
+      :if={@sheet_meta}
+      rel="preload"
+      href={@sheet_meta.public_path}
+      as="image"
+      type="image/svg+xml"
+    />
+    """
+  end
 end
 ```
 
