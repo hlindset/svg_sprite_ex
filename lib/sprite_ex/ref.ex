@@ -58,7 +58,7 @@ defmodule SpriteEx.Ref do
 
   Supported options:
 
-  - `:sheet` - the target sheet name, as a string or atom
+  - `sheet` - the target sheet name, as a string or atom
 
   This macro accepts a compile-time literal icon path such as `"regular/xmark"`
   and returns a `%SpriteEx.SpriteRef{}` that points at the specified sprite
