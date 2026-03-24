@@ -71,7 +71,7 @@ defmodule SpriteEx.MixProject do
   defp docs do
     [
       main: "readme",
-      source_ref: "main",
+      source_ref: "v#{@version}",
       extras: ["README.md", "CHANGELOG.md"],
       groups_for_modules: [
         "Primary API": [SpriteEx, SpriteEx.Ref, SpriteEx.Svg],
