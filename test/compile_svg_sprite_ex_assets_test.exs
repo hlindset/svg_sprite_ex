@@ -173,7 +173,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert String.ends_with?(generated_source, "\n")
     assert Code.ensure_loaded?(sprite_metadata_module)
 
-    assert {:ok, sheet_info} = apply(sprite_metadata_module, :sprite_sheet, ["alerts"])
+    assert sheet_info = apply(sprite_metadata_module, :sprite_sheet, ["alerts"])
     assert sheet_info.name == "alerts"
     assert sheet_info.filename == "alerts.svg"
     assert match?([_], apply(sprite_metadata_module, :sprites_in_sheet, ["alerts"]))

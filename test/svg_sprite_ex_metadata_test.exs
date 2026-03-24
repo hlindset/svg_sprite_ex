@@ -23,7 +23,8 @@ defmodule SvgSpriteEx.MetadataTest do
              %SpriteSheetMeta{name: "ui_actions", filename: "ui_actions.svg"}
            ] = SvgSpriteEx.sprite_sheets()
 
-    assert {:ok, %SpriteSheetMeta{name: "ui_actions"} = sheet_info} =
+    assert %SpriteSheetMeta{name: "ui_actions"} =
+             sheet_info =
              SvgSpriteEx.sprite_sheet(:" UI Actions ")
 
     assert sheet_info.build_path == Path.join(sprite_build_path, "ui_actions.svg")
@@ -41,7 +42,7 @@ defmodule SvgSpriteEx.MetadataTest do
 
     assert source_path == Path.join(Config.source_root!(), "regular/xmark.svg")
     assert href == "/assets/sprites/ui_actions.svg##{sprite_id}"
-    assert SvgSpriteEx.sprite_sheet("missing") == :error
+    assert SvgSpriteEx.sprite_sheet("missing") == nil
     assert SvgSpriteEx.sprites_in_sheet("missing") == []
   end
 
@@ -64,10 +65,10 @@ defmodule SvgSpriteEx.MetadataTest do
 
     assert source_path == Path.join(Config.source_root!(), "regular/xmark.svg")
 
-    assert {:ok, %InlineSvgMeta{name: "regular/xmark", source_path: ^source_path}} =
+    assert %InlineSvgMeta{name: "regular/xmark", source_path: ^source_path} =
              SvgSpriteEx.inline_svg(" regular\\xmark ")
 
-    assert SvgSpriteEx.inline_svg("regular/missing") == :error
+    assert SvgSpriteEx.inline_svg("regular/missing") == nil
   end
 
   defp compile_runtime_metadata!(manifest_path, source_dir, compile_path, sprite_build_path) do

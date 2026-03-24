@@ -139,7 +139,7 @@ SvgSpriteEx.sprite_sheets()
 #=> [%SvgSpriteEx.SpriteSheetMeta{...}]
 
 SvgSpriteEx.sprite_sheet("dashboard")
-#=> {:ok, %SvgSpriteEx.SpriteSheetMeta{...}}
+#=> %SvgSpriteEx.SpriteSheetMeta{...}
 
 SvgSpriteEx.sprites_in_sheet("dashboard")
 #=> [%SvgSpriteEx.SpriteMeta{...}]
@@ -148,5 +148,5 @@ SvgSpriteEx.inline_svgs()
 #=> [%SvgSpriteEx.InlineSvgMeta{...}]
 
 SvgSpriteEx.inline_svg("regular/xmark")
-#=> {:ok, %SvgSpriteEx.InlineSvgMeta{...}}
+#=> %SvgSpriteEx.InlineSvgMeta{...}
 ```

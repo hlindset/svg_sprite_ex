@@ -55,8 +55,7 @@ defmodule SvgSpriteEx do
   @doc """
   Returns metadata for one compiled sprite sheet by name.
   """
-  @spec sprite_sheet(String.t() | atom() | nil) ::
-          {:ok, SvgSpriteEx.SpriteSheetMeta.t()} | :error
+  @spec sprite_sheet(String.t() | atom() | nil) :: SvgSpriteEx.SpriteSheetMeta.t() | nil
   def sprite_sheet(sheet) do
     normalized_sheet = Ref.normalize_sheet!(sheet, Config.default_sheet!())
 
@@ -64,7 +63,7 @@ defmodule SvgSpriteEx do
       @sprite_sheet_registry_module,
       :sprite_sheet,
       [normalized_sheet],
-      :error
+      nil
     )
   end
 
@@ -94,7 +93,7 @@ defmodule SvgSpriteEx do
   @doc """
   Returns metadata for one compiled inline SVG by name.
   """
-  @spec inline_svg(String.t()) :: {:ok, SvgSpriteEx.InlineSvgMeta.t()} | :error
+  @spec inline_svg(String.t()) :: SvgSpriteEx.InlineSvgMeta.t() | nil
   def inline_svg(name) do
     normalized_name = Source.normalize_name!(name, Config.source_root!())
 
@@ -102,7 +101,7 @@ defmodule SvgSpriteEx do
       @inline_svg_registry_module,
       :inline_svg,
       [normalized_name],
-      :error
+      nil
     )
   end
 

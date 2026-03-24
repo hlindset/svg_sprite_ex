@@ -548,7 +548,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         sheet_info_ast = Macro.escape(sheet_info)
 
         quote do
-          def sprite_sheet(unquote(name)), do: {:ok, unquote(sheet_info_ast)}
+          def sprite_sheet(unquote(name)), do: unquote(sheet_info_ast)
         end
       end)
 
@@ -573,9 +573,9 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         @spec sprite_sheets() :: [SpriteSheetMeta.t()]
         def sprite_sheets, do: unquote(sprite_sheets_ast)
 
-        @spec sprite_sheet(String.t()) :: {:ok, SpriteSheetMeta.t()} | :error
+        @spec sprite_sheet(String.t()) :: SpriteSheetMeta.t() | nil
         unquote_splicing(sprite_sheet_clause_asts)
-        def sprite_sheet(_name), do: :error
+        def sprite_sheet(_name), do: nil
 
         @spec sprites_in_sheet(String.t()) :: [SpriteMeta.t()]
         unquote_splicing(sprites_in_sheet_clause_asts)
@@ -597,7 +597,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         inline_svg_info_ast = Macro.escape(inline_svg_info)
 
         quote do
-          def inline_svg(unquote(name)), do: {:ok, unquote(inline_svg_info_ast)}
+          def inline_svg(unquote(name)), do: unquote(inline_svg_info_ast)
         end
       end)
 
@@ -612,9 +612,9 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         @spec inline_svgs() :: [InlineSvgMeta.t()]
         def inline_svgs, do: unquote(inline_svg_infos_ast)
 
-        @spec inline_svg(String.t()) :: {:ok, InlineSvgMeta.t()} | :error
+        @spec inline_svg(String.t()) :: InlineSvgMeta.t() | nil
         unquote_splicing(inline_svg_clause_asts)
-        def inline_svg(_name), do: :error
+        def inline_svg(_name), do: nil
       end
     end
   end
