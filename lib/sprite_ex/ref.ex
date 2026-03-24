@@ -365,7 +365,7 @@ defmodule SpriteEx.Ref do
   end
 
   defp module_attribute!(%{module: module} = caller, attribute)
-       when is_atom(module) and module != nil do
+       when is_atom(module) and not is_nil(module) do
     case Module.get_attribute(module, attribute) do
       nil ->
         raise CompileError,
