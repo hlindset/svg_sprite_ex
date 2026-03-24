@@ -8,11 +8,16 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   @manifest_vsn 1
 
   alias SvgSpriteEx.Config
+  alias SvgSpriteEx.InlineSvgInfo
   alias SvgSpriteEx.Ref
   alias SvgSpriteEx.Source
+  alias SvgSpriteEx.SpriteInfo
   alias SvgSpriteEx.SpriteSheet
+  alias SvgSpriteEx.SpriteSheetInfo
 
   @inline_registry_module SvgSpriteEx.Generated.InlineIcons
+  @inline_metadata_module SvgSpriteEx.Generated.InlineSvgs
+  @sprite_metadata_module SvgSpriteEx.Generated.SpriteSheets
 
   @impl Mix.Task.Compiler
   def run(_args) do
@@ -21,8 +26,13 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
       compiler_manifest_path: compiler_manifest_path(),
       elixir_manifest_path: elixir_manifest_path(),
       generated_source_path: generated_source_path(),
+      inline_metadata_source_path: inline_metadata_source_path(),
+      sprite_metadata_source_path: sprite_metadata_source_path(),
       inline_registry_module: @inline_registry_module,
+      inline_metadata_module: @inline_metadata_module,
+      sprite_metadata_module: @sprite_metadata_module,
       build_path: Config.build_path!(),
+      public_path: Config.public_path!(),
       source_root: Config.source_root!()
     )
   end
@@ -34,13 +44,12 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
   @impl Mix.Task.Compiler
   def clean do
+    compile_path = Mix.Project.compile_path()
     compiler_manifest_path = compiler_manifest_path()
 
-    cleanup_inline_registry(
-      Mix.Project.compile_path(),
-      generated_source_path(),
-      @inline_registry_module
-    )
+    cleanup_generated_module(compile_path, generated_source_path(), @inline_registry_module)
+    cleanup_generated_module(compile_path, inline_metadata_source_path(), @inline_metadata_module)
+    cleanup_generated_module(compile_path, sprite_metadata_source_path(), @sprite_metadata_module)
 
     compiler_manifest_path
     |> read_compiler_manifest()
@@ -60,8 +69,25 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     generated_source_path =
       Keyword.get(opts, :generated_source_path, generated_source_path(elixir_manifest_path))
 
+    inline_metadata_source_path =
+      Keyword.get(
+        opts,
+        :inline_metadata_source_path,
+        inline_metadata_source_path(elixir_manifest_path)
+      )
+
+    sprite_metadata_source_path =
+      Keyword.get(
+        opts,
+        :sprite_metadata_source_path,
+        sprite_metadata_source_path(elixir_manifest_path)
+      )
+
     inline_registry_module = Keyword.get(opts, :inline_registry_module, @inline_registry_module)
+    inline_metadata_module = Keyword.get(opts, :inline_metadata_module, @inline_metadata_module)
+    sprite_metadata_module = Keyword.get(opts, :sprite_metadata_module, @sprite_metadata_module)
     build_path = Keyword.fetch!(opts, :build_path)
+    public_path = Keyword.get(opts, :public_path, Config.public_path!())
     source_root = Keyword.fetch!(opts, :source_root)
 
     modules = project_modules(compile_path, elixir_manifest_path)
@@ -69,7 +95,9 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     sprite_refs = collect_project_refs(modules, &sprite_refs/1)
     inline_refs = collect_project_refs(modules, &inline_refs/1)
     inline_sources = load_inline_sources(inline_refs, source_root)
-    sprite_builds = build_sprite_outputs(sprite_refs, build_path, source_root)
+    sprite_metadata = build_sprite_metadata(sprite_refs, build_path, public_path, source_root)
+    inline_svg_infos = build_inline_svg_infos(inline_refs, source_root)
+    sprite_builds = build_sprite_outputs(sprite_metadata, source_root)
 
     File.mkdir_p!(build_path)
 
@@ -83,13 +111,35 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         inline_sources
       )
 
+    sprite_metadata_result =
+      write_sprite_metadata_registry(
+        compile_path,
+        sprite_metadata_source_path,
+        sprite_metadata_module,
+        sprite_metadata
+      )
+
+    inline_metadata_result =
+      write_inline_metadata_registry(
+        compile_path,
+        inline_metadata_source_path,
+        inline_metadata_module,
+        inline_svg_infos
+      )
+
     active_artifact_paths =
       active_artifact_paths(
         sprite_builds,
         compile_path,
         generated_source_path,
         inline_sources,
-        inline_registry_module
+        inline_registry_module,
+        sprite_metadata_source_path,
+        sprite_metadata,
+        sprite_metadata_module,
+        inline_metadata_source_path,
+        inline_svg_infos,
+        inline_metadata_module
       )
 
     manifest_cleanup_result =
@@ -104,6 +154,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
          [
            sprite_result,
            inline_result,
+           sprite_metadata_result,
+           inline_metadata_result,
            manifest_cleanup_result,
            manifest_write_result
          ],
@@ -131,12 +183,39 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     |> Enum.sort()
   end
 
-  defp build_sprite_outputs(sprite_refs, build_path, source_root) do
+  defp build_sprite_metadata(sprite_refs, build_path, public_path, source_root) do
     sprite_refs
     |> Enum.group_by(fn {sheet, _name} -> sheet end, fn {_sheet, name} -> name end)
-    |> Enum.into(%{}, fn {sheet, names} ->
-      {Ref.sheet_build_path(sheet, build_path),
-       SpriteSheet.build(names, source_root: source_root)}
+    |> Enum.sort_by(fn {sheet, _names} -> sheet end)
+    |> Enum.map(fn {sheet, names} ->
+      sheet_build_path = Ref.sheet_build_path(sheet, build_path)
+      sheet_public_path = Ref.sheet_public_path(sheet, public_path)
+
+      sheet_info = %SpriteSheetInfo{
+        name: sheet,
+        filename: Path.basename(sheet_build_path),
+        build_path: sheet_build_path,
+        public_path: sheet_public_path
+      }
+
+      sprites =
+        Enum.map(names, fn name ->
+          %SpriteInfo{
+            name: name,
+            sheet: sheet,
+            source_path: Source.source_file_path!(name, source_root),
+            sprite_id: Source.sprite_id_from_normalized(name),
+            href: Ref.sprite_href(name, source_root, sheet, public_path)
+          }
+        end)
+
+      {sheet_info, sprites}
+    end)
+  end
+
+  defp build_sprite_outputs(sprite_metadata, source_root) do
+    Enum.into(sprite_metadata, %{}, fn {%SpriteSheetInfo{build_path: build_path}, sprites} ->
+      {build_path, SpriteSheet.build(Enum.map(sprites, & &1.name), source_root: source_root)}
     end)
   end
 
@@ -146,24 +225,56 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     end)
   end
 
+  defp build_inline_svg_infos(inline_refs, source_root) do
+    Enum.map(inline_refs, fn name ->
+      %InlineSvgInfo{
+        name: name,
+        source_path: Source.source_file_path!(name, source_root)
+      }
+    end)
+  end
+
   defp active_artifact_paths(
          sprite_builds,
          compile_path,
          generated_source_path,
          inline_sources,
-         inline_registry_module
+         inline_registry_module,
+         sprite_metadata_source_path,
+         sprite_metadata,
+         sprite_metadata_module,
+         inline_metadata_source_path,
+         inline_svg_infos,
+         inline_metadata_module
        ) do
     sprite_artifacts = Map.keys(sprite_builds)
 
     inline_artifacts =
-      inline_registry_artifact_paths(
+      generated_module_artifact_paths(
         compile_path,
         generated_source_path,
         inline_sources,
         inline_registry_module
       )
 
-    (sprite_artifacts ++ inline_artifacts)
+    sprite_metadata_artifacts =
+      generated_module_artifact_paths(
+        compile_path,
+        sprite_metadata_source_path,
+        sprite_metadata,
+        sprite_metadata_module
+      )
+
+    inline_metadata_artifacts =
+      generated_module_artifact_paths(
+        compile_path,
+        inline_metadata_source_path,
+        inline_svg_infos,
+        inline_metadata_module
+      )
+
+    (sprite_artifacts ++
+       inline_artifacts ++ sprite_metadata_artifacts ++ inline_metadata_artifacts)
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -213,7 +324,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
          inline_registry_module,
          []
        ) do
-    cleanup_inline_registry(compile_path, generated_source_path, inline_registry_module)
+    cleanup_generated_module(compile_path, generated_source_path, inline_registry_module)
   end
 
   defp write_inline_registry(
@@ -223,41 +334,112 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
          inline_sources
        ) do
     source = build_inline_registry_source(inline_registry_module, inline_sources)
-    write_status = write_generated_source(generated_source_path, source)
 
-    compile_status =
-      compile_inline_registry(
-        compile_path,
-        generated_source_path,
-        inline_registry_module,
-        write_status
-      )
-
-    changed([write_status, compile_status])
+    write_generated_module(
+      compile_path,
+      generated_source_path,
+      inline_registry_module,
+      source,
+      "inline registry"
+    )
   end
 
   defp write_generated_source(path, source) do
     write_if_changed(path, source)
   end
 
-  defp compile_inline_registry(
+  defp write_sprite_metadata_registry(
          compile_path,
          generated_source_path,
-         inline_registry_module,
-         write_status
+         sprite_metadata_module,
+         []
        ) do
-    beam_path = generated_beam_path(compile_path, inline_registry_module)
+    cleanup_generated_module(compile_path, generated_source_path, sprite_metadata_module)
+  end
+
+  defp write_sprite_metadata_registry(
+         compile_path,
+         generated_source_path,
+         sprite_metadata_module,
+         sprite_metadata
+       ) do
+    source = build_sprite_metadata_registry_source(sprite_metadata_module, sprite_metadata)
+
+    write_generated_module(
+      compile_path,
+      generated_source_path,
+      sprite_metadata_module,
+      source,
+      "sprite metadata registry"
+    )
+  end
+
+  defp write_inline_metadata_registry(
+         compile_path,
+         generated_source_path,
+         inline_metadata_module,
+         []
+       ) do
+    cleanup_generated_module(compile_path, generated_source_path, inline_metadata_module)
+  end
+
+  defp write_inline_metadata_registry(
+         compile_path,
+         generated_source_path,
+         inline_metadata_module,
+         inline_svg_infos
+       ) do
+    source = build_inline_metadata_registry_source(inline_metadata_module, inline_svg_infos)
+
+    write_generated_module(
+      compile_path,
+      generated_source_path,
+      inline_metadata_module,
+      source,
+      "inline metadata registry"
+    )
+  end
+
+  defp write_generated_module(
+         compile_path,
+         generated_source_path,
+         generated_module,
+         source,
+         description
+       ) do
+    write_status = write_generated_source(generated_source_path, source)
+
+    compile_status =
+      compile_generated_module(
+        compile_path,
+        generated_source_path,
+        generated_module,
+        write_status,
+        description
+      )
+
+    changed([write_status, compile_status])
+  end
+
+  defp compile_generated_module(
+         compile_path,
+         generated_source_path,
+         generated_module,
+         write_status,
+         description
+       ) do
+    beam_path = generated_beam_path(compile_path, generated_module)
 
     if write_status == :noop and File.exists?(beam_path) do
       :noop
     else
-      unload_generated_module(inline_registry_module)
+      unload_generated_module(generated_module)
 
       case Kernel.ParallelCompiler.compile_to_path([generated_source_path], compile_path,
              return_diagnostics: true
            ) do
         {:ok, _modules, _warnings} ->
-          unload_generated_module(inline_registry_module)
+          unload_generated_module(generated_module)
           :ok
 
         {:error, errors, warnings} ->
@@ -266,35 +448,35 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
           raise Mix.Error,
             message:
-              "failed to compile generated inline registry:\n#{Enum.join(diagnostics, "\n")}"
+              "failed to compile generated #{description}:\n#{Enum.join(diagnostics, "\n")}"
       end
     end
   end
 
-  defp cleanup_inline_registry(compile_path, generated_source_path, inline_registry_module) do
-    unload_generated_module(inline_registry_module)
+  defp cleanup_generated_module(compile_path, generated_source_path, generated_module) do
+    unload_generated_module(generated_module)
 
     changed([
       rm_if_exists(generated_source_path),
-      rm_if_exists(generated_beam_path(compile_path, inline_registry_module))
+      rm_if_exists(generated_beam_path(compile_path, generated_module))
     ])
   end
 
-  defp inline_registry_artifact_paths(
+  defp generated_module_artifact_paths(
          _compile_path,
          _generated_source_path,
          [],
-         _inline_registry_module
+         _generated_module
        ),
        do: []
 
-  defp inline_registry_artifact_paths(
+  defp generated_module_artifact_paths(
          compile_path,
          generated_source_path,
-         _inline_sources,
-         inline_registry_module
+         _entries,
+         generated_module
        ) do
-    [generated_source_path, generated_beam_path(compile_path, inline_registry_module)]
+    [generated_source_path, generated_beam_path(compile_path, generated_module)]
   end
 
   defp build_inline_registry_source(inline_registry_module, inline_sources) do
@@ -351,8 +533,94 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     end
   end
 
-  defp generated_beam_path(compile_path, inline_registry_module) do
-    Path.join(compile_path, Atom.to_string(inline_registry_module) <> ".beam")
+  defp build_sprite_metadata_registry_source(sprite_metadata_module, sprite_metadata) do
+    sprite_metadata_module
+    |> build_sprite_metadata_registry_ast(sprite_metadata)
+    |> Macro.to_string()
+    |> Kernel.<>("\n")
+  end
+
+  defp build_sprite_metadata_registry_ast(sprite_metadata_module, sprite_metadata) do
+    sprite_sheets = Enum.map(sprite_metadata, fn {sheet_info, _sprites} -> sheet_info end)
+
+    sprite_sheet_clause_asts =
+      Enum.map(sprite_metadata, fn {%SpriteSheetInfo{name: name} = sheet_info, _sprites} ->
+        sheet_info_ast = Macro.escape(sheet_info)
+
+        quote do
+          def sprite_sheet(unquote(name)), do: {:ok, unquote(sheet_info_ast)}
+        end
+      end)
+
+    sprites_in_sheet_clause_asts =
+      Enum.map(sprite_metadata, fn {%SpriteSheetInfo{name: name}, sprites} ->
+        sprites_ast = Macro.escape(sprites)
+
+        quote do
+          def sprites_in_sheet(unquote(name)), do: unquote(sprites_ast)
+        end
+      end)
+
+    sprite_sheets_ast = Macro.escape(sprite_sheets)
+
+    quote do
+      defmodule unquote(sprite_metadata_module) do
+        @moduledoc false
+
+        alias SvgSpriteEx.SpriteInfo
+        alias SvgSpriteEx.SpriteSheetInfo
+
+        @spec sprite_sheets() :: [SpriteSheetInfo.t()]
+        def sprite_sheets, do: unquote(sprite_sheets_ast)
+
+        @spec sprite_sheet(String.t()) :: {:ok, SpriteSheetInfo.t()} | :error
+        unquote_splicing(sprite_sheet_clause_asts)
+        def sprite_sheet(_name), do: :error
+
+        @spec sprites_in_sheet(String.t()) :: [SpriteInfo.t()]
+        unquote_splicing(sprites_in_sheet_clause_asts)
+        def sprites_in_sheet(_name), do: []
+      end
+    end
+  end
+
+  defp build_inline_metadata_registry_source(inline_metadata_module, inline_svg_infos) do
+    inline_metadata_module
+    |> build_inline_metadata_registry_ast(inline_svg_infos)
+    |> Macro.to_string()
+    |> Kernel.<>("\n")
+  end
+
+  defp build_inline_metadata_registry_ast(inline_metadata_module, inline_svg_infos) do
+    inline_svg_clause_asts =
+      Enum.map(inline_svg_infos, fn %InlineSvgInfo{name: name} = inline_svg_info ->
+        inline_svg_info_ast = Macro.escape(inline_svg_info)
+
+        quote do
+          def inline_svg(unquote(name)), do: {:ok, unquote(inline_svg_info_ast)}
+        end
+      end)
+
+    inline_svg_infos_ast = Macro.escape(inline_svg_infos)
+
+    quote do
+      defmodule unquote(inline_metadata_module) do
+        @moduledoc false
+
+        alias SvgSpriteEx.InlineSvgInfo
+
+        @spec inline_svgs() :: [InlineSvgInfo.t()]
+        def inline_svgs, do: unquote(inline_svg_infos_ast)
+
+        @spec inline_svg(String.t()) :: {:ok, InlineSvgInfo.t()} | :error
+        unquote_splicing(inline_svg_clause_asts)
+        def inline_svg(_name), do: :error
+      end
+    end
+  end
+
+  defp generated_beam_path(compile_path, generated_module) do
+    Path.join(compile_path, Atom.to_string(generated_module) <> ".beam")
   end
 
   defp generated_source_path do
@@ -369,15 +637,35 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     |> Path.join("compile.svg_sprite_ex_assets")
   end
 
+  defp inline_metadata_source_path do
+    inline_metadata_source_path(elixir_manifest_path())
+  end
+
+  defp sprite_metadata_source_path do
+    sprite_metadata_source_path(elixir_manifest_path())
+  end
+
   defp generated_source_path(elixir_manifest_path) do
     elixir_manifest_path
     |> Path.dirname()
     |> Path.join("svg_sprite_ex_generated_inline_icons.ex")
   end
 
-  defp unload_generated_module(inline_registry_module) do
-    :code.purge(inline_registry_module)
-    :code.delete(inline_registry_module)
+  defp inline_metadata_source_path(elixir_manifest_path) do
+    elixir_manifest_path
+    |> Path.dirname()
+    |> Path.join("svg_sprite_ex_generated_inline_svgs.ex")
+  end
+
+  defp sprite_metadata_source_path(elixir_manifest_path) do
+    elixir_manifest_path
+    |> Path.dirname()
+    |> Path.join("svg_sprite_ex_generated_sprite_sheets.ex")
+  end
+
+  defp unload_generated_module(generated_module) do
+    :code.purge(generated_module)
+    :code.delete(generated_module)
     :ok
   end
 

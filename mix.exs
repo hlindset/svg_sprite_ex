@@ -75,7 +75,12 @@ defmodule SvgSpriteEx.MixProject do
       extras: ["README.md", "CHANGELOG.md"],
       groups_for_modules: [
         "Primary API": [SvgSpriteEx, SvgSpriteEx.Ref, SvgSpriteEx.Svg],
-        "Ref Types": [SvgSpriteEx.InlineRef, SvgSpriteEx.SpriteRef]
+        "Ref Types": [SvgSpriteEx.InlineRef, SvgSpriteEx.SpriteRef],
+        "Metadata Types": [
+          SvgSpriteEx.InlineSvgInfo,
+          SvgSpriteEx.SpriteInfo,
+          SvgSpriteEx.SpriteSheetInfo
+        ]
       ]
     ]
   end

@@ -71,7 +71,7 @@ When you run `mix compile`, the compiler:
 
 - scans compiled modules for `sprite_ref` and `inline_ref` calls
 - writes one SVG sprite sheet per sheet name into `build_path`
-- compiles a `SvgSpriteEx.Generated.InlineIcons` module for inline SVG lookup
+- compiles generated modules for inline SVG lookup and runtime metadata lookup
 
 With the config above, `sprite_ref("regular/xmark")` returns a
 `%SvgSpriteEx.SpriteRef{}` whose `href` looks like
@@ -129,3 +129,31 @@ Inline mode skips the sprite sheet and renders the SVG inline in the document.
 
 This lets you serve the raw SVG markup in the page instead of a `<use>`
 reference, without doing runtime file reads.
+
+## Runtime metadata
+
+`SvgSpriteEx` also exposes runtime metadata for compiled outputs:
+
+```elixir
+SvgSpriteEx.sprite_sheets()
+#=> [%SvgSpriteEx.SpriteSheetInfo{...}]
+
+SvgSpriteEx.sprite_sheet("dashboard")
+#=> {:ok, %SvgSpriteEx.SpriteSheetInfo{...}}
+
+SvgSpriteEx.sprites_in_sheet("dashboard")
+#=> [%SvgSpriteEx.SpriteInfo{...}]
+
+SvgSpriteEx.inline_svgs()
+#=> [%SvgSpriteEx.InlineSvgInfo{...}]
+
+SvgSpriteEx.inline_svg("regular/xmark")
+#=> {:ok, %SvgSpriteEx.InlineSvgInfo{...}}
+```
+
+Sprite sheet metadata includes the normalized sheet name plus the generated
+filename, filesystem build path, and public path. Sprite metadata includes the
+logical sprite name, source SVG path, sprite id, and full `href`.
+
+Inline SVG metadata is intentionally minimal in v1 and includes the logical SVG
+name plus its source file path.
