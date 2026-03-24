@@ -47,13 +47,13 @@ config :sprite_ex,
   public_path: "/sprites"
 ```
 
-### Required keys
+### Required configuration
 
 - `source_root` - absolute path to the directory that contains source SVG files
 - `build_path` - absolute path where the compiler generates sprite sheets
-- `public_path` - public URL prefix baked into `sprite_ref/1` hrefs
+- `public_path` - public URL prefix for `sprite_ref/1` hrefs
 
-### Optional keys
+### Optional configuration
 
 - `default_sheet` - default sprite sheet name when no `sheet` option is
   given. Defaults to `sprites`
@@ -96,7 +96,7 @@ This will import:
 - the `<.svg>` function component from `SpriteEx.Svg`
 - the `sprite_ref` and `inline_ref` macros from `SpriteEx.Ref`
 
-### Render from a sprite sheet
+### Render using a sprite sheet
 
 ```elixir
 defmodule MyAppWeb.MyComponents do
@@ -118,7 +118,7 @@ can also compile icons to other named sheets:
 <.svg ref={sprite_ref("regular/xmark", sheet: "dashboard")} class="size-4" />
 ```
 
-### Render inline SVG markup
+### Render inline SVGs
 
 Inline mode skips the sprite sheet and renders the SVG inline in the document.
 
