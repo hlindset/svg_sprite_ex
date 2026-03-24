@@ -382,6 +382,7 @@ defmodule SvgSpriteEx.Ref do
     raise CompileError,
       file: caller.file,
       line: caller.line,
-      description: "SvgSpriteEx.Ref macros must be used inside a module that uses SvgSpriteEx"
+      description:
+        "SvgSpriteEx.Ref macros must be used inside a module that uses SvgSpriteEx or SvgSpriteEx.Ref"
   end
 end
