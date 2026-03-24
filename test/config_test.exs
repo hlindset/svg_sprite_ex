@@ -32,6 +32,11 @@ defmodule SpriteEx.ConfigTest do
     original_env = Application.get_all_env(:sprite_ex)
 
     on_exit(fn ->
+      for {key, _value} <- Application.get_all_env(:sprite_ex),
+          not Keyword.has_key?(original_env, key) do
+        Application.delete_env(:sprite_ex, key)
+      end
+
       Application.put_all_env(sprite_ex: original_env)
       :code.purge(module)
       :code.delete(module)
