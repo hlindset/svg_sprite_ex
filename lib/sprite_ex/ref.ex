@@ -39,6 +39,18 @@ defmodule SpriteEx.Ref do
   This macro accepts a compile-time literal icon path such as `"regular/xmark"`
   and returns a `%SpriteEx.SpriteRef{}` that points at the configured default
   sprite sheet.
+
+  ## Examples
+
+      iex> {:module, SpriteExDocTestSpriteRefDefaultExample, _, _} =
+      ...>   defmodule Elixir.SpriteExDocTestSpriteRefDefaultExample do
+      ...>   use SpriteEx
+      ...>
+      ...>   def icon_ref, do: sprite_ref("regular/xmark")
+      ...> end
+      iex> ref = SpriteExDocTestSpriteRefDefaultExample.icon_ref()
+      iex> {ref.name, ref.sheet, String.ends_with?(ref.href, "#" <> ref.sprite_id)}
+      {"regular/xmark", "sprites", true}
   """
   defmacro sprite_ref(name), do: build_sprite_ref_ast(name, [], __CALLER__)
 
@@ -52,6 +64,18 @@ defmodule SpriteEx.Ref do
   This macro accepts a compile-time literal icon path such as `"regular/xmark"`
   and returns a `%SpriteEx.SpriteRef{}` that points at the specified sprite
   sheet.
+
+  ## Examples
+
+      iex> {:module, SpriteExDocTestSpriteRefSheetExample, _, _} =
+      ...>   defmodule Elixir.SpriteExDocTestSpriteRefSheetExample do
+      ...>   use SpriteEx
+      ...>
+      ...>   def icon_ref, do: sprite_ref("regular/xmark", sheet: "Dashboard")
+      ...> end
+      iex> ref = SpriteExDocTestSpriteRefSheetExample.icon_ref()
+      iex> {ref.name, ref.sheet, String.starts_with?(ref.href, "/assets/sprites/dashboard.svg#")}
+      {"regular/xmark", "dashboard", true}
   """
   defmacro sprite_ref(name, opts) do
     build_sprite_ref_ast(name, opts, __CALLER__)
@@ -62,6 +86,18 @@ defmodule SpriteEx.Ref do
 
   This macro accepts a compile-time literal icon path such as `"regular/xmark"`
   and returns a `%SpriteEx.InlineRef{}` for use with `<.svg ref={...} />`.
+
+  ## Examples
+
+      iex> {:module, SpriteExDocTestInlineRefExample, _, _} =
+      ...>   defmodule Elixir.SpriteExDocTestInlineRefExample do
+      ...>   use SpriteEx
+      ...>
+      ...>   def icon_ref, do: inline_ref("regular/xmark")
+      ...> end
+      iex> ref = SpriteExDocTestInlineRefExample.icon_ref()
+      iex> {ref.name, ref.registry}
+      {"regular/xmark", SpriteEx.Generated.InlineIcons}
   """
   defmacro inline_ref(name) do
     build_inline_ref_ast(name, __CALLER__)

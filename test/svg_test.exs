@@ -3,8 +3,6 @@ defmodule SpriteEx.SvgTest do
   use Phoenix.Component
   use SpriteEx
 
-  doctest SpriteEx
-
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias SpriteEx.InlineRef
