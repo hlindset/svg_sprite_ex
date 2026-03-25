@@ -5,6 +5,118 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   alias SvgSpriteEx.Config
   alias SvgSpriteEx.Ref
 
+  setup do
+    drain_after_compiler(:elixir)
+    on_exit(fn -> drain_after_compiler(:elixir) end)
+    :ok
+  end
+
+  test "run/1 returns :noop and registers an after-:elixir callback" do
+    assert :noop = SvgSpriteExAssets.run([])
+
+    assert [callback] = drain_after_compiler(:elixir)
+    assert {:noop, [:diagnostic]} = callback.({:noop, [:diagnostic]})
+  end
+
+  test "after-:elixir callback compiles sprite artifacts when elixir reports ok" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    generated_source_path = generated_source_path(manifest_path)
+    inline_registry_module = unique_inline_registry_module()
+
+    write_sprite_fixture_module!(source_dir, unique_module(:hooked_sprite_fixture),
+      sheet: "alerts"
+    )
+
+    write_inline_fixture_module!(source_dir, unique_module(:hooked_inline_fixture),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    SvgSpriteExAssets.register_after_elixir_hook(
+      compile_path: compile_path,
+      compiler_manifest_path: compiler_manifest_path,
+      elixir_manifest_path: manifest_path,
+      generated_source_path: generated_source_path,
+      inline_registry_module: inline_registry_module,
+      build_path: sprite_build_path,
+      source_root: Config.source_root!()
+    )
+
+    assert [callback] = drain_after_compiler(:elixir)
+    assert {:ok, [:diagnostic]} = callback.({:ok, [:diagnostic]})
+
+    assert File.exists?(Ref.sheet_build_path("alerts", sprite_build_path))
+    assert File.exists?(generated_source_path)
+    assert File.exists?(generated_beam_path(compile_path, inline_registry_module))
+  end
+
+  test "after-:elixir callback noops when elixir reports noop" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    generated_source_path = generated_source_path(manifest_path)
+    inline_registry_module = unique_inline_registry_module()
+
+    SvgSpriteExAssets.register_after_elixir_hook(
+      compile_path: compile_path,
+      compiler_manifest_path: compiler_manifest_path,
+      elixir_manifest_path: manifest_path,
+      generated_source_path: generated_source_path,
+      inline_registry_module: inline_registry_module,
+      build_path: sprite_build_path,
+      source_root: Config.source_root!()
+    )
+
+    assert [callback] = drain_after_compiler(:elixir)
+    assert {:noop, [:diagnostic]} = callback.({:noop, [:diagnostic]})
+
+    refute File.exists?(generated_source_path)
+    refute File.exists?(generated_beam_path(compile_path, inline_registry_module))
+    refute File.exists?(Ref.sheet_build_path("alerts", sprite_build_path))
+  end
+
+  test "generated inline registry beam is present before compile.app completes" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    generated_source_path = generated_source_path(manifest_path)
+    inline_registry_module = unique_inline_registry_module()
+
+    write_inline_fixture_module!(source_dir, unique_module(:app_order_inline_fixture),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    SvgSpriteExAssets.register_after_elixir_hook(
+      compile_path: compile_path,
+      compiler_manifest_path: compiler_manifest_path,
+      elixir_manifest_path: manifest_path,
+      generated_source_path: generated_source_path,
+      inline_registry_module: inline_registry_module,
+      build_path: sprite_build_path,
+      source_root: Config.source_root!()
+    )
+
+    assert [callback] = drain_after_compiler(:elixir)
+    assert {:ok, []} = callback.({:ok, []})
+    assert File.exists?(generated_beam_path(compile_path, inline_registry_module))
+
+    Mix.Task.reenable("compile.app")
+    assert {:ok, []} = Mix.Tasks.Compile.App.run(["--force", "--compile-path", compile_path])
+
+    assert inline_registry_module in app_modules(compile_path)
+  end
+
   test "compile_sprite_artifacts!/1 removes stale sprite outputs after modules disappear" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
@@ -613,5 +725,17 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     File.mkdir_p!(path)
     ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(path) end)
     path
+  end
+
+  defp drain_after_compiler(compiler) do
+    Mix.ProjectStack.pop_after_compiler(compiler)
+  end
+
+  defp app_modules(compile_path) do
+    app_path = Path.join(compile_path, "#{Mix.Project.config()[:app]}.app")
+
+    assert {:ok, [{:application, _app, properties}]} = :file.consult(String.to_charlist(app_path))
+
+    Keyword.fetch!(properties, :modules)
   end
 end

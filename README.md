@@ -30,11 +30,25 @@ def project do
     app: :my_app,
     version: "0.1.0",
     elixir: "~> 1.19",
-    compilers: Mix.compilers() ++ [:svg_sprite_ex_assets],
+    compilers: [:svg_sprite_ex_assets] ++ Mix.compilers(),
     deps: deps()
   ]
 end
 ```
+
+Note that `:svg_sprite_ex_assets` must appear before the `:elixir` compiler.
+
+When using Phoenix code reloading in development, add `:svg_sprite_ex_assets`
+to `reloadable_compilers` too. Phoenix only reruns the compilers listed there
+during request-time reloads, so omitting it can still reload the page before
+the generated sprite sheet or inline registry has been rebuilt.
+
+```elixir
+config :my_app, MyAppWeb.Endpoint,
+  reloadable_compilers: [:svg_sprite_ex_assets, :elixir, :app]
+```
+
+Adjust the list to match the compilers used in your project.
 
 ## Configuration
 

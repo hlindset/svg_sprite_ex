@@ -21,20 +21,20 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
   @impl Mix.Task.Compiler
   def run(_args) do
-    compile_sprite_artifacts!(
-      compile_path: Mix.Project.compile_path(),
-      compiler_manifest_path: compiler_manifest_path(),
-      elixir_manifest_path: elixir_manifest_path(),
-      generated_source_path: generated_source_path(),
-      inline_metadata_source_path: inline_metadata_source_path(),
-      sprite_metadata_source_path: sprite_metadata_source_path(),
-      inline_registry_module: @inline_registry_module,
-      inline_metadata_module: @inline_metadata_module,
-      sprite_metadata_module: @sprite_metadata_module,
-      build_path: Config.build_path!(),
-      public_path: Config.public_path!(),
-      source_root: Config.source_root!()
-    )
+    register_after_elixir_hook(default_compile_opts())
+    :noop
+  end
+
+  @doc false
+  def register_after_elixir_hook(opts) do
+    Mix.Task.Compiler.after_compiler(:elixir, fn
+      {:noop, diagnostics} ->
+        {:noop, diagnostics}
+
+      {status, diagnostics} ->
+        compile_sprite_artifacts!(opts)
+        {status, diagnostics}
+    end)
   end
 
   @impl Mix.Task.Compiler
@@ -163,6 +163,23 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
        ),
        do: :noop,
        else: :ok
+  end
+
+  defp default_compile_opts do
+    [
+      compile_path: Mix.Project.compile_path(),
+      compiler_manifest_path: compiler_manifest_path(),
+      elixir_manifest_path: elixir_manifest_path(),
+      generated_source_path: generated_source_path(),
+      inline_metadata_source_path: inline_metadata_source_path(),
+      sprite_metadata_source_path: sprite_metadata_source_path(),
+      inline_registry_module: @inline_registry_module,
+      inline_metadata_module: @inline_metadata_module,
+      sprite_metadata_module: @sprite_metadata_module,
+      build_path: Config.build_path!(),
+      public_path: Config.public_path!(),
+      source_root: Config.source_root!()
+    ]
   end
 
   defp project_modules(compile_path, elixir_manifest_path) do
