@@ -46,7 +46,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert File.exists?(generated_beam_path(compile_path, inline_registry_module))
   end
 
-  test "after_elixir_callback/1 noops when elixir reports noop" do
+  test "after_elixir_callback/1 recompiles sprite artifacts when elixir reports noop" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
     sprite_build_path = unique_tmp_dir!("sprite-build-path")
@@ -54,6 +54,16 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     compiler_manifest_path = compiler_manifest_path(manifest_path)
     generated_source_path = generated_source_path(manifest_path)
     inline_registry_module = unique_inline_registry_module()
+
+    write_sprite_fixture_module!(source_dir, unique_module(:hooked_sprite_fixture_on_noop),
+      sheet: "alerts"
+    )
+
+    write_inline_fixture_module!(source_dir, unique_module(:hooked_inline_fixture_on_noop),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
 
     callback =
       SvgSpriteExAssets.after_elixir_callback(
@@ -68,9 +78,9 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
     assert {:noop, [:diagnostic]} = callback.({:noop, [:diagnostic]})
 
-    refute File.exists?(generated_source_path)
-    refute File.exists?(generated_beam_path(compile_path, inline_registry_module))
-    refute File.exists?(Ref.sheet_build_path("alerts", sprite_build_path))
+    assert File.exists?(generated_source_path)
+    assert File.exists?(generated_beam_path(compile_path, inline_registry_module))
+    assert File.exists?(Ref.sheet_build_path("alerts", sprite_build_path))
   end
 
   test "after_elixir_callback/1 skips sprite compilation when elixir reports error" do

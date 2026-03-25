@@ -33,9 +33,6 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   @doc false
   def after_elixir_callback(opts) do
     fn
-      {:noop, diagnostics} ->
-        {:noop, diagnostics}
-
       {:error, diagnostics} ->
         {:error, diagnostics}
 
