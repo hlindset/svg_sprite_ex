@@ -301,22 +301,12 @@ defmodule SvgSpriteEx.Ref do
     end
   end
 
-  defp register_sprite_ref!(module, normalized_name, normalized_sheet, source_root) do
+  defp register_sprite_ref!(module, normalized_name, normalized_sheet, _source_root) do
     Module.put_attribute(module, :__sprite_refs__, {normalized_sheet, normalized_name})
-    register_external_resource!(module, normalized_name, source_root)
   end
 
-  defp register_inline_ref!(module, normalized_name, source_root) do
+  defp register_inline_ref!(module, normalized_name, _source_root) do
     Module.put_attribute(module, :__inline_refs__, normalized_name)
-    register_external_resource!(module, normalized_name, source_root)
-  end
-
-  defp register_external_resource!(module, normalized_name, source_root) do
-    Module.put_attribute(
-      module,
-      :external_resource,
-      Source.source_file_path!(normalized_name, source_root)
-    )
   end
 
   defp sprite_href_from_normalized(name, normalized_sheet, public_path) do

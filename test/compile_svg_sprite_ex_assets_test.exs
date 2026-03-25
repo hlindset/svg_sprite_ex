@@ -83,6 +83,159 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert File.exists?(Ref.sheet_build_path("alerts", sprite_build_path))
   end
 
+  test "after_elixir_callback/1 keeps artifacts unchanged when noop inputs are unchanged" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    generated_source_path = generated_source_path(manifest_path)
+    inline_registry_module = unique_inline_registry_module()
+
+    write_sprite_fixture_module!(source_dir, unique_module(:hooked_stable_sprite_fixture),
+      sheet: "alerts"
+    )
+
+    write_inline_fixture_module!(source_dir, unique_module(:hooked_stable_inline_fixture),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    callback =
+      SvgSpriteExAssets.after_elixir_callback(
+        compile_path: compile_path,
+        compiler_manifest_path: compiler_manifest_path,
+        elixir_manifest_path: manifest_path,
+        generated_source_path: generated_source_path,
+        inline_registry_module: inline_registry_module,
+        build_path: sprite_build_path,
+        source_root: Config.source_root!()
+      )
+
+    assert {:ok, []} = callback.({:ok, []})
+
+    sheet_path = Ref.sheet_build_path("alerts", sprite_build_path)
+    generated_source = File.read!(generated_source_path)
+    sprite_sheet = File.read!(sheet_path)
+    manifest = File.read!(compiler_manifest_path)
+
+    assert {:noop, [:diagnostic]} = callback.({:noop, [:diagnostic]})
+
+    assert File.read!(generated_source_path) == generated_source
+    assert File.read!(sheet_path) == sprite_sheet
+    assert File.read!(compiler_manifest_path) == manifest
+  end
+
+  test "after_elixir_callback/1 recompiles generated inline assets when inline svg contents change on noop" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    generated_source_path = generated_source_path(manifest_path)
+    inline_metadata_source_path = inline_metadata_source_path(manifest_path)
+    inline_registry_module = unique_inline_registry_module()
+    inline_metadata_module = unique_inline_metadata_module()
+    svg_source_root = unique_svg_source_root!("inline-noop-change")
+
+    write_inline_fixture_module!(source_dir, unique_module(:hooked_inline_noop_fixture),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    callback =
+      SvgSpriteExAssets.after_elixir_callback(
+        compile_path: compile_path,
+        compiler_manifest_path: compiler_manifest_path,
+        elixir_manifest_path: manifest_path,
+        generated_source_path: generated_source_path,
+        inline_registry_module: inline_registry_module,
+        inline_metadata_source_path: inline_metadata_source_path,
+        inline_metadata_module: inline_metadata_module,
+        build_path: sprite_build_path,
+        source_root: svg_source_root
+      )
+
+    assert {:ok, []} = callback.({:ok, []})
+
+    first_source = File.read!(generated_source_path)
+
+    write_svg_source!(
+      svg_source_root,
+      "regular/xmark",
+      """
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M1 1h22v22H1z" />
+      </svg>
+      """
+    )
+
+    assert {:noop, [:diagnostic]} = callback.({:noop, [:diagnostic]})
+
+    second_source = File.read!(generated_source_path)
+
+    refute first_source =~ "fill"
+    assert second_source =~ "fill"
+    assert second_source =~ "M1 1h22v22H1z"
+
+    assert {:ok, inline_asset} = apply(inline_registry_module, :fetch, ["regular/xmark"])
+    assert inline_asset.inner_content =~ "M1 1h22v22H1z"
+    assert File.read!(inline_metadata_source_path) =~ "regular/xmark"
+  end
+
+  test "after_elixir_callback/1 rewrites sprite sheets when sprite svg contents change on noop" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    sprite_metadata_source_path = sprite_metadata_source_path(manifest_path)
+    sprite_metadata_module = unique_sprite_metadata_module()
+    svg_source_root = unique_svg_source_root!("sprite-noop-change")
+
+    write_sprite_fixture_module!(source_dir, unique_module(:hooked_sprite_noop_fixture),
+      sheet: "alerts"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    callback =
+      SvgSpriteExAssets.after_elixir_callback(
+        compile_path: compile_path,
+        compiler_manifest_path: compiler_manifest_path,
+        elixir_manifest_path: manifest_path,
+        sprite_metadata_source_path: sprite_metadata_source_path,
+        sprite_metadata_module: sprite_metadata_module,
+        build_path: sprite_build_path,
+        public_path: Config.public_path!(),
+        source_root: svg_source_root
+      )
+
+    assert {:ok, []} = callback.({:ok, []})
+
+    sheet_path = Ref.sheet_build_path("alerts", sprite_build_path)
+    first_sprite_sheet = File.read!(sheet_path)
+
+    write_svg_source!(
+      svg_source_root,
+      "regular/xmark",
+      """
+      <svg viewBox="0 0 24 24">
+        <path d="M2 2h20v20H2z" />
+      </svg>
+      """
+    )
+
+    assert {:noop, [:diagnostic]} = callback.({:noop, [:diagnostic]})
+
+    second_sprite_sheet = File.read!(sheet_path)
+
+    refute first_sprite_sheet =~ "M2 2h20v20H2z"
+    assert second_sprite_sheet =~ "M2 2h20v20H2z"
+  end
+
   test "after_elixir_callback/1 skips sprite compilation when elixir reports error" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
@@ -534,6 +687,90 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert second_source =~ "M1 1h22v22H1z"
   end
 
+  test "compile_sprite_artifacts!/1 rebuilds generated assets when a tracked artifact is missing" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    generated_source_path = generated_source_path(manifest_path)
+    inline_registry_module = unique_inline_registry_module()
+
+    write_inline_fixture_module!(source_dir, unique_module(:missing_artifact_fixture),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               generated_source_path: generated_source_path,
+               inline_registry_module: inline_registry_module,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    File.rm!(generated_source_path)
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               generated_source_path: generated_source_path,
+               inline_registry_module: inline_registry_module,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    assert File.exists?(generated_source_path)
+  end
+
+  test "compile_sprite_artifacts!/1 rebuilds when the compiler manifest is from an older version" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    generated_source_path = generated_source_path(manifest_path)
+    inline_registry_module = unique_inline_registry_module()
+
+    write_inline_fixture_module!(source_dir, unique_module(:legacy_manifest_fixture),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               generated_source_path: generated_source_path,
+               inline_registry_module: inline_registry_module,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    write_legacy_manifest!(compiler_manifest_path, tracked_artifact_paths(compiler_manifest_path))
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               generated_source_path: generated_source_path,
+               inline_registry_module: inline_registry_module,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    assert is_binary(tracked_input_digest(compiler_manifest_path))
+  end
+
   test "compile_sprite_artifacts!/1 noops when the manifest-backed refs are unchanged" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
@@ -590,6 +827,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
                inline_metadata_source_path,
                sprite_metadata_source_path
              ])
+
+    assert is_binary(tracked_input_digest(compiler_manifest_path))
 
     assert :noop =
              SvgSpriteExAssets.compile_sprite_artifacts!(
@@ -766,6 +1005,21 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     end
   end
 
+  defp tracked_input_digest(path) do
+    case File.read(path) do
+      {:ok, binary} ->
+        :erlang.binary_to_term(binary, [:safe])
+        |> Map.get(:input_digest)
+
+      {:error, :enoent} ->
+        nil
+    end
+  end
+
+  defp write_legacy_manifest!(path, artifact_paths) do
+    File.write!(path, :erlang.term_to_binary(%{vsn: 1, artifact_paths: artifact_paths}))
+  end
+
   defp elixir_manifest_path!(source_dir) do
     manifest_dir = Path.join(source_dir, ".mix")
     File.mkdir_p!(manifest_dir)
@@ -776,8 +1030,9 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     svg_source_root = unique_tmp_dir!("svg-root-#{suffix}")
     File.mkdir_p!(Path.join(svg_source_root, "regular"))
 
-    File.write!(
-      Path.join(svg_source_root, "regular/xmark.svg"),
+    write_svg_source!(
+      svg_source_root,
+      "regular/xmark",
       """
       <svg viewBox="0 0 24 24">
         <path d="M0 0h24v24H0z" />
@@ -786,6 +1041,12 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     )
 
     svg_source_root
+  end
+
+  defp write_svg_source!(svg_source_root, name, source) do
+    path = Path.join(svg_source_root, "#{name}.svg")
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, source)
   end
 
   defp unique_tmp_dir!(suffix) do

@@ -21,8 +21,9 @@ def deps do
 end
 ```
 
-Then register the sprite compiler after the default Mix compilers so it can
-discover `sprite_ref/1`, `sprite_ref/2`, and `inline_ref/1` usages.
+Then register the sprite compiler ahead of the default Mix compilers so it can
+install its Elixir compile callback and discover `sprite_ref/1`, `sprite_ref/2`,
+and `inline_ref/1` usages.
 
 ```elixir
 def project do
@@ -84,8 +85,15 @@ the generated outputs.
 When you run `mix compile`, the compiler:
 
 - scans compiled modules for `sprite_ref` and `inline_ref` calls
+- hashes the referenced SVG files and compiler inputs to detect asset changes
 - writes one SVG sprite sheet per sheet name into `build_path`
 - compiles generated modules for inline SVG lookup and runtime metadata lookup
+
+SVG file changes are tracked by the sprite compiler manifest, so changing an
+icon rebuilds the generated sprite sheets and inline registry modules even when
+Elixir itself would otherwise report `:noop`. Consumer modules that call
+`sprite_ref` or `inline_ref` do not need recompilation just because the
+underlying SVG contents changed.
 
 With the config above, `sprite_ref("regular/xmark")` returns a
 `%SvgSpriteEx.SpriteRef{}` whose `href` looks like
