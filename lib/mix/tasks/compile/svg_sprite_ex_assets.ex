@@ -27,14 +27,19 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
   @doc false
   def register_after_elixir_hook(opts) do
-    Mix.Task.Compiler.after_compiler(:elixir, fn
+    Mix.Task.Compiler.after_compiler(:elixir, after_elixir_callback(opts))
+  end
+
+  @doc false
+  def after_elixir_callback(opts) do
+    fn
       {:noop, diagnostics} ->
         {:noop, diagnostics}
 
       {status, diagnostics} ->
         compile_sprite_artifacts!(opts)
         {status, diagnostics}
-    end)
+    end
   end
 
   @impl Mix.Task.Compiler
