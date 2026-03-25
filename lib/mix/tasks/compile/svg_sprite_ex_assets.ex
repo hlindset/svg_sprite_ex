@@ -325,7 +325,11 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   defp file_digest(path) do
     path
     |> File.read!()
-    |> term_digest()
+    |> binary_digest()
+  end
+
+  defp binary_digest(binary) when is_binary(binary) do
+    :crypto.hash(:sha256, binary)
   end
 
   defp term_digest(term) do
