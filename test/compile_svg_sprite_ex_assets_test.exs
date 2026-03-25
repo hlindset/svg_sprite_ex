@@ -175,7 +175,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     Mix.Task.reenable("compile.app")
     assert {:ok, []} = Mix.Tasks.Compile.App.run(["--force", "--compile-path", compile_path])
 
-    assert inline_registry_module in app_modules(compile_path)
+    assert {:ok, modules} = app_modules(compile_path)
+    assert inline_registry_module in modules
   end
 
   test "compile_sprite_artifacts!/1 removes stale sprite outputs after modules disappear" do
@@ -791,8 +792,18 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   defp app_modules(compile_path) do
     app_path = Path.join(compile_path, "#{Mix.Project.config()[:app]}.app")
 
-    assert {:ok, [{:application, _app, properties}]} = :file.consult(String.to_charlist(app_path))
+    case :file.consult(String.to_charlist(app_path)) do
+      {:ok, [{:application, _app, properties}]} ->
+        case Keyword.fetch(properties, :modules) do
+          {:ok, modules} -> {:ok, modules}
+          :error -> {:error, :missing_modules}
+        end
 
-    Keyword.fetch!(properties, :modules)
+      {:ok, _terms} ->
+        {:error, :invalid_app_file}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 end
