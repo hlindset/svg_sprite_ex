@@ -273,7 +273,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     refute File.exists?(generated_beam_path(compile_path, inline_registry_module))
   end
 
-  test "register_after_elixir_hook/1 runs through the public compiler pipeline" do
+  test "register_after_elixir_hook/1 installs the hook without compiling eagerly" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
     sprite_build_path = unique_tmp_dir!("sprite-build-path")
@@ -288,22 +288,19 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
     assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
 
-    SvgSpriteExAssets.register_after_elixir_hook(
-      compile_path: compile_path,
-      compiler_manifest_path: compiler_manifest_path,
-      elixir_manifest_path: manifest_path,
-      generated_source_path: generated_source_path,
-      inline_registry_module: inline_registry_module,
-      build_path: sprite_build_path,
-      source_root: Config.source_root!()
-    )
+    assert :ok =
+             SvgSpriteExAssets.register_after_elixir_hook(
+               compile_path: compile_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               generated_source_path: generated_source_path,
+               inline_registry_module: inline_registry_module,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
 
-    Mix.Task.Compiler.reenable([:elixir])
-    assert {:ok, []} = Mix.Task.Compiler.run([:elixir], ["--force"])
-
-    assert File.exists?(generated_source_path)
-    assert File.exists?(generated_beam_path(compile_path, inline_registry_module))
-    assert apply(inline_registry_module, :names, []) == ["regular/xmark"]
+    refute File.exists?(generated_source_path)
+    refute File.exists?(generated_beam_path(compile_path, inline_registry_module))
   end
 
   test "generated inline registry beam is present before compile.app completes" do

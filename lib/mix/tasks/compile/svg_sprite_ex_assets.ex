@@ -768,6 +768,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   end
 
   defp unload_generated_module(generated_module) do
+    :code.purge(generated_module)
     :code.delete(generated_module)
     :code.purge(generated_module)
     :ok
