@@ -71,7 +71,7 @@ When you run `mix compile`, the compiler:
 
 - scans compiled modules for `sprite_ref` and `inline_ref` calls
 - writes one SVG sprite sheet per sheet name into `build_path`
-- compiles a `SvgSpriteEx.Generated.InlineIcons` module for inline SVG lookup
+- compiles generated modules for inline SVG lookup and runtime metadata lookup
 
 With the config above, `sprite_ref("regular/xmark")` returns a
 `%SvgSpriteEx.SpriteRef{}` whose `href` looks like
@@ -129,3 +129,62 @@ Inline mode skips the sprite sheet and renders the SVG inline in the document.
 
 This lets you serve the raw SVG markup in the page instead of a `<use>`
 reference, without doing runtime file reads.
+
+## Runtime metadata
+
+`SvgSpriteEx` also exposes runtime metadata for compiled outputs:
+
+```elixir
+SvgSpriteEx.sprite_sheets()
+#=> [%SvgSpriteEx.SpriteSheetMeta{...}]
+
+SvgSpriteEx.sprite_sheet("dashboard")
+#=> %SvgSpriteEx.SpriteSheetMeta{...}
+
+SvgSpriteEx.sprites_in_sheet("dashboard")
+#=> [%SvgSpriteEx.SpriteMeta{...}]
+
+SvgSpriteEx.inline_svgs()
+#=> [%SvgSpriteEx.InlineSvgMeta{...}]
+
+SvgSpriteEx.inline_svg("regular/xmark")
+#=> %SvgSpriteEx.InlineSvgMeta{...}
+```
+
+## Patterns
+
+### Preload a single sprite sheet
+
+When a layout or component knows it will use a specific sprite sheet, you can
+preload it by looking up the compiled sheet metadata with `sprite_sheet/1` and
+rendering a `<link rel="preload" ...>` tag.
+
+In a helper or function component:
+
+```elixir
+defmodule MyAppWeb.MyComponents do
+  use Phoenix.Component
+
+  attr :sheet, :string, required: true
+
+  def sprite_sheet_preload(assigns) do
+    assigns = assign(assigns, :sheet_meta, SvgSpriteEx.sprite_sheet(assigns.sheet))
+
+    ~H"""
+    <link
+      :if={@sheet_meta}
+      rel="preload"
+      href={@sheet_meta.public_path}
+      as="image"
+      type="image/svg+xml"
+    />
+    """
+  end
+end
+```
+
+Then in a layout or page template:
+
+```elixir
+<.sprite_sheet_preload sheet="dashboard" />
+```
