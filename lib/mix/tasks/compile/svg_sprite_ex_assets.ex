@@ -36,6 +36,9 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
       {:noop, diagnostics} ->
         {:noop, diagnostics}
 
+      {:error, diagnostics} ->
+        {:error, diagnostics}
+
       {status, diagnostics} ->
         compile_sprite_artifacts!(opts)
         {status, diagnostics}
