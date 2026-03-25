@@ -539,21 +539,34 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     else
       unload_generated_module(generated_module)
 
-      case Kernel.ParallelCompiler.compile_to_path([generated_source_path], compile_path,
-             return_diagnostics: true
-           ) do
-        {:ok, _modules, _warnings} ->
-          unload_generated_module(generated_module)
-          :ok
+      with_generated_module_conflicts_ignored(fn ->
+        case Kernel.ParallelCompiler.compile_to_path([generated_source_path], compile_path,
+               return_diagnostics: true
+             ) do
+          {:ok, _modules, _warnings} ->
+            unload_generated_module(generated_module)
+            :ok
 
-        {:error, errors, warnings} ->
-          diagnostics =
-            Enum.map(List.wrap(errors), &diagnostic_message/1) ++ warning_messages(warnings)
+          {:error, errors, warnings} ->
+            diagnostics =
+              Enum.map(List.wrap(errors), &diagnostic_message/1) ++ warning_messages(warnings)
 
-          raise Mix.Error,
-            message:
-              "failed to compile generated #{description}:\n#{Enum.join(diagnostics, "\n")}"
-      end
+            raise Mix.Error,
+              message:
+                "failed to compile generated #{description}:\n#{Enum.join(diagnostics, "\n")}"
+        end
+      end)
+    end
+  end
+
+  defp with_generated_module_conflicts_ignored(fun) when is_function(fun, 0) do
+    previous_value = Code.compiler_options()[:ignore_module_conflict]
+
+    try do
+      Code.put_compiler_option(:ignore_module_conflict, true)
+      fun.()
+    after
+      Code.put_compiler_option(:ignore_module_conflict, previous_value)
     end
   end
 
