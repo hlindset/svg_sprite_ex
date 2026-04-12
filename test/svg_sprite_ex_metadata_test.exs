@@ -173,8 +173,7 @@ defmodule SvgSpriteEx.MetadataTest do
   end
 
   defp clear_runtime_data_cache do
-    :persistent_term.erase({SvgSpriteEx.Generated.RuntimeData, :runtime_data})
-    :ok
+    SvgSpriteEx.Generated.RuntimeData.delete()
   end
 
   defp setup_runtime_loader!(compile_paths) do

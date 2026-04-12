@@ -33,6 +33,11 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
     Map.get(data().sprites_in_sheet, name, [])
   end
 
+  def delete do
+    :persistent_term.erase(@cache_key)
+    :ok
+  end
+
   defp data do
     fingerprint = runtime_data_fingerprint()
 

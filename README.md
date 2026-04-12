@@ -42,7 +42,7 @@ Note that `:svg_sprite_ex_assets` **must** appear before the `:elixir` compiler.
 When using Phoenix code reloading in development, add `:svg_sprite_ex_assets`
 to `reloadable_compilers`. Phoenix only reruns the compilers listed there
 during request-time reloads, so omitting it can still reload the page before
-the generated sprite sheet or runtime metadata data file has been rebuilt.
+the generated sprite sheet or runtime metadata file has been rebuilt.
 
 ```elixir
 config :my_app, MyAppWeb.Endpoint,
