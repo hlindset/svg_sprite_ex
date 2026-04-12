@@ -71,6 +71,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
     assert File.exists?(Ref.sheet_build_path("alerts", sprite_build_path))
     assert File.exists?(runtime_data_path)
+    assert %{vsn: runtime_data_vsn} = read_runtime_data!(runtime_data_path)
+    assert runtime_data_vsn == SvgSpriteEx.Generated.RuntimeData.runtime_data_vsn()
   end
 
   test "after_elixir_callback/1 recompiles sprite artifacts when elixir reports noop" do

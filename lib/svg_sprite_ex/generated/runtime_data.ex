@@ -2,6 +2,9 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
   @moduledoc false
 
   @cache_key {__MODULE__, :runtime_data}
+  @runtime_data_vsn 2
+
+  def runtime_data_vsn, do: @runtime_data_vsn
 
   def fetch_inline_asset(name) do
     Map.fetch(data().inline_assets, name)
@@ -132,7 +135,7 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
 
   defp validate_runtime_data!(
          %{
-           vsn: 1,
+           vsn: @runtime_data_vsn,
            inline_assets: inline_assets,
            inline_svg_map: inline_svg_map,
            sprite_sheet_map: sprite_sheet_map,

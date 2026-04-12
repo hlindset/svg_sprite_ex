@@ -9,6 +9,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   @compiler_fingerprint_vsn 1
 
   alias SvgSpriteEx.Config
+  alias SvgSpriteEx.Generated.RuntimeData
   alias SvgSpriteEx.InlineSvgMeta
   alias SvgSpriteEx.Ref
   alias SvgSpriteEx.Source
@@ -304,7 +305,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
       Map.new(sprite_metadata, fn {sheet_info, sprites} -> {sheet_info.name, sprites} end)
 
     %{
-      vsn: 1,
+      vsn: RuntimeData.runtime_data_vsn(),
       inline_assets: inline_assets,
       inline_svgs: inline_svg_infos,
       inline_svg_map: inline_svg_map,
@@ -421,7 +422,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
   defp empty_runtime_data do
     %{
-      vsn: 1,
+      vsn: RuntimeData.runtime_data_vsn(),
       inline_assets: %{},
       inline_svgs: [],
       inline_svg_map: %{},
@@ -666,9 +667,14 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         Enum.map(
           [
             __MODULE__,
+            SvgSpriteEx.Generated.RuntimeData,
+            SvgSpriteEx.InlineAsset,
+            SvgSpriteEx.InlineSvgMeta,
             SvgSpriteEx.Ref,
             SvgSpriteEx.Source,
-            SvgSpriteEx.SpriteSheet
+            SvgSpriteEx.SpriteMeta,
+            SvgSpriteEx.SpriteSheet,
+            SvgSpriteEx.SpriteSheetMeta
           ],
           fn module ->
             Code.ensure_loaded!(module)
