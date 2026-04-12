@@ -55,15 +55,16 @@ defmodule Test.Support.CompileHelpers do
 
   def capture_result(fun) do
     parent = self()
+    ref = make_ref()
 
     output =
       capture_io(fn ->
-        send(parent, {:captured_result, fun.()})
+        send(parent, {:captured_result, ref, fun.()})
       end)
 
     result =
       receive do
-        {:captured_result, result} -> result
+        {:captured_result, ^ref, result} -> result
       end
 
     {result, output}
