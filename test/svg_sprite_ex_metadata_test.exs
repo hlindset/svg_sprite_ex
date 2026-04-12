@@ -154,6 +154,43 @@ defmodule SvgSpriteEx.MetadataTest do
     assert File.exists?(runtime_data_path(compile_path_two))
   end
 
+  test "runtime metadata cache reloads after compiler updates artifacts" do
+    {source_dir, manifest_path, compile_path, sprite_build_path} = runtime_fixture_paths!()
+
+    write_sprite_fixture_module!(source_dir, unique_module(:runtime_cache_alerts_fixture),
+      sheet: "alerts"
+    )
+
+    setup_runtime_loader!([compile_path])
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path,
+               source_dir,
+               compile_path,
+               sprite_build_path
+             )
+
+    assert [%SpriteSheetMeta{name: "alerts"}] = SvgSpriteEx.sprite_sheets()
+
+    write_sprite_fixture_module!(source_dir, unique_module(:runtime_cache_dashboard_fixture),
+      sheet: "dashboard"
+    )
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path,
+               source_dir,
+               compile_path,
+               sprite_build_path
+             )
+
+    assert [
+             %SpriteSheetMeta{name: "alerts"},
+             %SpriteSheetMeta{name: "dashboard"}
+           ] = SvgSpriteEx.sprite_sheets()
+  end
+
   defp compile_runtime_metadata!(manifest_path, source_dir, compile_path, sprite_build_path) do
     setup_runtime_loader!([compile_path])
     compile_runtime_metadata_app!(manifest_path, source_dir, compile_path, sprite_build_path)

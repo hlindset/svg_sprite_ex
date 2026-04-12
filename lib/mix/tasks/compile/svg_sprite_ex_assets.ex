@@ -59,6 +59,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     File.rm(compiler_manifest_path)
     File.rm_rf(ref_snapshots_path(compiler_state_path))
     rm_if_exists(runtime_data_path())
+    invalidate_runtime_data_cache()
     :ok
   end
 
@@ -138,6 +139,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
           input_digest,
           ref_snapshots_bootstrapped
         )
+
+      invalidate_runtime_data_cache()
 
       if Enum.all?(
            [
@@ -634,6 +637,17 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     case File.rm(path) do
       :ok -> :ok
       {:error, :enoent} -> :noop
+    end
+  end
+
+  defp invalidate_runtime_data_cache do
+    runtime_data_module = SvgSpriteEx.Generated.RuntimeData
+
+    if Code.ensure_loaded?(runtime_data_module) and
+         function_exported?(runtime_data_module, :delete, 0) do
+      runtime_data_module.delete()
+    else
+      :ok
     end
   end
 

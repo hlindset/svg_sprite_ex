@@ -39,22 +39,24 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
   end
 
   defp data do
-    fingerprint = runtime_data_fingerprint()
-
     case :persistent_term.get(@cache_key, :missing) do
-      %{fingerprint: ^fingerprint, data: data} ->
+      %{data: data} ->
+        data
+
+      :missing ->
+        data = load_runtime_data(runtime_data_paths())
+        :persistent_term.put(@cache_key, %{data: data})
         data
 
       _other ->
-        data = load_runtime_data(fingerprint)
-        :persistent_term.put(@cache_key, %{fingerprint: fingerprint, data: data})
-        data
+        delete()
+        data()
     end
   end
 
-  defp load_runtime_data(fingerprint) do
-    fingerprint
-    |> Enum.map(fn {path, _mtime, _size} -> read_runtime_data!(path) end)
+  defp load_runtime_data(paths) do
+    paths
+    |> Enum.map(&read_runtime_data!/1)
     |> Enum.reduce(empty_runtime_data(), &merge_runtime_data/2)
     |> finalize_runtime_data()
   end
@@ -124,17 +126,6 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
   defp validate_runtime_data!(runtime_data, path) do
     raise ArgumentError,
           "invalid svg_sprite_ex runtime data at #{path}: #{inspect(runtime_data)}"
-  end
-
-  defp runtime_data_fingerprint do
-    runtime_data_paths()
-    |> Enum.map(fn path ->
-      case File.stat(path, time: :posix) do
-        {:ok, %{mtime: mtime, size: size}} -> {path, mtime, size}
-        {:error, _reason} -> nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
   end
 
   defp runtime_data_paths do
