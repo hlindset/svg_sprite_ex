@@ -25,7 +25,9 @@ defmodule SvgSpriteEx.Ref do
       @svg_sprite_ex_source_root SvgSpriteEx.Config.source_root!()
       @svg_sprite_ex_default_sheet SvgSpriteEx.Config.default_sheet!()
       @svg_sprite_ex_public_path SvgSpriteEx.Config.public_path!()
+      @svg_sprite_ex_compiler_state_path SvgSpriteEx.Ref.compiler_state_path!()
       @before_compile unquote(__MODULE__)
+      @after_compile unquote(__MODULE__)
     end
   end
 
@@ -143,6 +145,35 @@ defmodule SvgSpriteEx.Ref do
     |> sanitize_sheet!()
   end
 
+  @doc false
+  def compiler_state_path! do
+    case Application.get_env(:svg_sprite_ex, :compiler_state_path_override) do
+      path when is_binary(path) ->
+        Path.expand(path)
+
+      nil ->
+        Path.join([Mix.Project.app_path(), ".mix", "svg_sprite_ex"])
+
+      other ->
+        raise ArgumentError,
+              "expected :svg_sprite_ex, :compiler_state_path_override to be a binary path, got: #{inspect(other)}"
+    end
+  end
+
+  @doc false
+  def ref_snapshot_path(module, compiler_state_path \\ compiler_state_path!())
+
+  def ref_snapshot_path(module, compiler_state_path)
+      when is_atom(module) and is_binary(compiler_state_path) do
+    module_hash =
+      module
+      |> Atom.to_string()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    Path.join([compiler_state_path, "refs", module_hash <> ".term"])
+  end
+
   defp normalize_explicit_sheet!(sheet), do: normalize_sheet!(sheet, sheet)
 
   defmacro __before_compile__(env) do
@@ -167,6 +198,38 @@ defmodule SvgSpriteEx.Ref do
       @doc false
       def __inline_refs__, do: unquote(inline_refs)
     end
+  end
+
+  @doc false
+  def __after_compile__(env, _bytecode) do
+    compiler_state_path = Module.get_attribute(env.module, :svg_sprite_ex_compiler_state_path)
+
+    snapshot = %{
+      module: env.module,
+      sprite_refs:
+        env.module
+        |> Module.get_attribute(:__sprite_refs__)
+        |> List.wrap()
+        |> Enum.uniq()
+        |> Enum.sort(),
+      inline_refs:
+        env.module
+        |> Module.get_attribute(:__inline_refs__)
+        |> List.wrap()
+        |> Enum.uniq()
+        |> Enum.sort()
+    }
+
+    snapshot_path = ref_snapshot_path(env.module, compiler_state_path)
+
+    if snapshot.sprite_refs == [] and snapshot.inline_refs == [] do
+      File.rm(snapshot_path)
+    else
+      File.mkdir_p!(Path.dirname(snapshot_path))
+      File.write!(snapshot_path, :erlang.term_to_binary(snapshot))
+    end
+
+    :ok
   end
 
   defp build_sprite_ref_ast(name, opts, caller) do

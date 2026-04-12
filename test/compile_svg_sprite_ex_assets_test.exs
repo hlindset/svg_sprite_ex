@@ -768,6 +768,64 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert is_binary(tracked_input_digest(compiler_manifest_path))
   end
 
+  test "compile_sprite_artifacts!/1 rebuilds when the compiler fingerprint changes" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    generated_source_path = generated_source_path(manifest_path)
+    inline_registry_module = unique_inline_registry_module()
+
+    write_inline_fixture_module!(source_dir, unique_module(:fingerprint_fixture),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               generated_source_path: generated_source_path,
+               inline_registry_module: inline_registry_module,
+               compiler_fingerprint: "fingerprint-v1",
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    first_digest = tracked_input_digest(compiler_manifest_path)
+
+    assert :noop =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               generated_source_path: generated_source_path,
+               inline_registry_module: inline_registry_module,
+               compiler_fingerprint: "fingerprint-v1",
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               generated_source_path: generated_source_path,
+               inline_registry_module: inline_registry_module,
+               compiler_fingerprint: "fingerprint-v2",
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    second_digest = tracked_input_digest(compiler_manifest_path)
+
+    assert first_digest != second_digest
+  end
+
   test "compile_sprite_artifacts!/1 noops when the manifest-backed refs are unchanged" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
@@ -845,23 +903,35 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   end
 
   defp compile_fixture_modules!(manifest_path, source_dir, compile_path) do
-    case Mix.Compilers.Elixir.compile(
-           manifest_path,
-           [source_dir],
-           compile_path,
-           {:svg_sprite_ex_test, source_dir},
-           [],
-           [],
-           []
-         ) do
-      {:ok, _diagnostics} ->
-        :ok
+    override = compiler_state_path(manifest_path)
+    previous_override = Application.get_env(:svg_sprite_ex, :compiler_state_path_override)
+    Application.put_env(:svg_sprite_ex, :compiler_state_path_override, override)
 
-      {:noop, _diagnostics} ->
-        :ok
+    try do
+      case Mix.Compilers.Elixir.compile(
+             manifest_path,
+             [source_dir],
+             compile_path,
+             {:svg_sprite_ex_test, source_dir},
+             [],
+             [],
+             []
+           ) do
+        {:ok, _diagnostics} ->
+          :ok
 
-      {:error, diagnostics} ->
-        flunk("fixture modules failed to compile: #{inspect(diagnostics)}")
+        {:noop, _diagnostics} ->
+          :ok
+
+        {:error, diagnostics} ->
+          flunk("fixture modules failed to compile: #{inspect(diagnostics)}")
+      end
+    after
+      if is_nil(previous_override) do
+        Application.delete_env(:svg_sprite_ex, :compiler_state_path_override)
+      else
+        Application.put_env(:svg_sprite_ex, :compiler_state_path_override, previous_override)
+      end
     end
   end
 
@@ -936,27 +1006,29 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   end
 
   defp generated_source_path(manifest_path) do
-    manifest_path
-    |> Path.dirname()
+    compiler_state_path(manifest_path)
     |> Path.join("svg_sprite_ex_generated_inline_icons.ex")
   end
 
   defp inline_metadata_source_path(manifest_path) do
-    manifest_path
-    |> Path.dirname()
+    compiler_state_path(manifest_path)
     |> Path.join("svg_sprite_ex_generated_inline_svgs.ex")
   end
 
   defp sprite_metadata_source_path(manifest_path) do
-    manifest_path
-    |> Path.dirname()
+    compiler_state_path(manifest_path)
     |> Path.join("svg_sprite_ex_generated_sprite_sheets.ex")
   end
 
   defp compiler_manifest_path(manifest_path) do
+    compiler_state_path(manifest_path)
+    |> Path.join("compile.svg_sprite_ex_assets")
+  end
+
+  defp compiler_state_path(manifest_path) do
     manifest_path
     |> Path.dirname()
-    |> Path.join("compile.svg_sprite_ex_assets")
+    |> Path.join("svg_sprite_ex")
   end
 
   defp unique_module(suffix) do

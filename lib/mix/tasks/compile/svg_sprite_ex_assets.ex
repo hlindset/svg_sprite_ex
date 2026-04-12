@@ -6,6 +6,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   @recursive true
   @shortdoc "Builds application SVG sprite sheets"
   @manifest_vsn 2
+  @compiler_fingerprint_vsn 1
 
   alias SvgSpriteEx.Config
   alias SvgSpriteEx.InlineSvgMeta
@@ -50,11 +51,26 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   @impl Mix.Task.Compiler
   def clean do
     compile_path = Mix.Project.compile_path()
-    compiler_manifest_path = compiler_manifest_path()
+    compiler_state_path = compiler_state_path()
+    compiler_manifest_path = compiler_manifest_path(compiler_state_path)
 
-    cleanup_generated_module(compile_path, generated_source_path(), @inline_registry_module)
-    cleanup_generated_module(compile_path, inline_metadata_source_path(), @inline_metadata_module)
-    cleanup_generated_module(compile_path, sprite_metadata_source_path(), @sprite_metadata_module)
+    cleanup_generated_module(
+      compile_path,
+      generated_source_path(compiler_state_path),
+      @inline_registry_module
+    )
+
+    cleanup_generated_module(
+      compile_path,
+      inline_metadata_source_path(compiler_state_path),
+      @inline_metadata_module
+    )
+
+    cleanup_generated_module(
+      compile_path,
+      sprite_metadata_source_path(compiler_state_path),
+      @sprite_metadata_module
+    )
 
     compiler_manifest_path
     |> read_compiler_manifest()
@@ -62,31 +78,33 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     |> cleanup_artifact_paths()
 
     File.rm(compiler_manifest_path)
+    File.rm_rf(ref_snapshots_path(compiler_state_path))
     :ok
   end
 
   def compile_sprite_artifacts!(opts) do
     compile_path = Keyword.fetch!(opts, :compile_path)
     elixir_manifest_path = Keyword.get(opts, :elixir_manifest_path, elixir_manifest_path())
+    compiler_state_path = Keyword.get(opts, :compiler_state_path, compiler_state_path())
 
     compiler_manifest_path =
-      Keyword.get(opts, :compiler_manifest_path, compiler_manifest_path(elixir_manifest_path))
+      Keyword.get(opts, :compiler_manifest_path, compiler_manifest_path(compiler_state_path))
 
     generated_source_path =
-      Keyword.get(opts, :generated_source_path, generated_source_path(elixir_manifest_path))
+      Keyword.get(opts, :generated_source_path, generated_source_path(compiler_state_path))
 
     inline_metadata_source_path =
       Keyword.get(
         opts,
         :inline_metadata_source_path,
-        inline_metadata_source_path(elixir_manifest_path)
+        inline_metadata_source_path(compiler_state_path)
       )
 
     sprite_metadata_source_path =
       Keyword.get(
         opts,
         :sprite_metadata_source_path,
-        sprite_metadata_source_path(elixir_manifest_path)
+        sprite_metadata_source_path(compiler_state_path)
       )
 
     inline_registry_module = Keyword.get(opts, :inline_registry_module, @inline_registry_module)
@@ -101,6 +119,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     sprite_refs = collect_project_refs(modules, &sprite_refs/1)
     inline_refs = collect_project_refs(modules, &inline_refs/1)
     compiler_manifest = read_compiler_manifest(compiler_manifest_path)
+    compiler_fingerprint = Keyword.get(opts, :compiler_fingerprint, compiler_fingerprint())
 
     input_digest =
       input_digest(
@@ -109,6 +128,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         source_root,
         build_path,
         public_path,
+        compiler_state_path,
+        compiler_fingerprint,
         generated_source_path,
         inline_metadata_source_path,
         sprite_metadata_source_path,
@@ -196,6 +217,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   defp default_compile_opts do
     [
       compile_path: Mix.Project.compile_path(),
+      compiler_state_path: compiler_state_path(),
       compiler_manifest_path: compiler_manifest_path(),
       elixir_manifest_path: elixir_manifest_path(),
       generated_source_path: generated_source_path(),
@@ -285,6 +307,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
          source_root,
          build_path,
          public_path,
+         compiler_state_path,
+         compiler_fingerprint,
          generated_source_path,
          inline_metadata_source_path,
          sprite_metadata_source_path,
@@ -299,6 +323,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
       source_root: Path.expand(source_root),
       build_path: Path.expand(build_path),
       public_path: public_path,
+      compiler_state_path: compiler_state_path,
+      compiler_fingerprint: compiler_fingerprint,
       generated_source_path: generated_source_path,
       inline_metadata_source_path: inline_metadata_source_path,
       sprite_metadata_source_path: sprite_metadata_source_path,
@@ -741,43 +767,43 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   end
 
   defp generated_source_path do
-    generated_source_path(elixir_manifest_path())
+    generated_source_path(compiler_state_path())
   end
 
   defp compiler_manifest_path do
-    compiler_manifest_path(elixir_manifest_path())
+    compiler_manifest_path(compiler_state_path())
   end
 
-  defp compiler_manifest_path(elixir_manifest_path) do
-    elixir_manifest_path
-    |> Path.dirname()
+  defp compiler_manifest_path(compiler_state_path) do
+    compiler_state_path
     |> Path.join("compile.svg_sprite_ex_assets")
   end
 
   defp inline_metadata_source_path do
-    inline_metadata_source_path(elixir_manifest_path())
+    inline_metadata_source_path(compiler_state_path())
   end
 
   defp sprite_metadata_source_path do
-    sprite_metadata_source_path(elixir_manifest_path())
+    sprite_metadata_source_path(compiler_state_path())
   end
 
-  defp generated_source_path(elixir_manifest_path) do
-    elixir_manifest_path
-    |> Path.dirname()
+  defp generated_source_path(compiler_state_path) do
+    compiler_state_path
     |> Path.join("svg_sprite_ex_generated_inline_icons.ex")
   end
 
-  defp inline_metadata_source_path(elixir_manifest_path) do
-    elixir_manifest_path
-    |> Path.dirname()
+  defp inline_metadata_source_path(compiler_state_path) do
+    compiler_state_path
     |> Path.join("svg_sprite_ex_generated_inline_svgs.ex")
   end
 
-  defp sprite_metadata_source_path(elixir_manifest_path) do
-    elixir_manifest_path
-    |> Path.dirname()
+  defp sprite_metadata_source_path(compiler_state_path) do
+    compiler_state_path
     |> Path.join("svg_sprite_ex_generated_sprite_sheets.ex")
+  end
+
+  defp ref_snapshots_path(compiler_state_path) do
+    Path.join(compiler_state_path, "refs")
   end
 
   defp unload_generated_module(generated_module) do
@@ -874,6 +900,31 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
   defp changed(results) do
     if Enum.any?(results, &(&1 == :ok)), do: :ok, else: :noop
+  end
+
+  defp compiler_state_path do
+    Ref.compiler_state_path!()
+  end
+
+  defp compiler_fingerprint do
+    digest_input = %{
+      vsn: @compiler_fingerprint_vsn,
+      module_md5s:
+        Enum.map(
+          [
+            __MODULE__,
+            SvgSpriteEx.Ref,
+            SvgSpriteEx.Source,
+            SvgSpriteEx.SpriteSheet
+          ],
+          fn module ->
+            Code.ensure_loaded!(module)
+            {module, module.module_info(:md5)}
+          end
+        )
+    }
+
+    term_digest(digest_input)
   end
 
   defp elixir_manifest_path do
