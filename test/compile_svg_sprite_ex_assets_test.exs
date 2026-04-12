@@ -316,7 +316,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     refute File.exists?(runtime_data_path)
   end
 
-  test "runtime data artifact is present before compile.app completes" do
+  test "after_elixir_callback/1 writes runtime data before compile.app completes" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
     sprite_build_path = unique_tmp_dir!("sprite-build-path")
@@ -330,6 +330,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
     assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
 
+    # register_after_elixir_hook/1 is covered by the installation test above;
+    # this assertion is intentionally narrowed to after_elixir_callback/1 behavior.
     callback =
       SvgSpriteExAssets.after_elixir_callback(
         compile_path: compile_path,
