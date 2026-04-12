@@ -12,7 +12,6 @@ defmodule SvgSpriteEx.Ref do
   alias SvgSpriteEx.Source
   alias SvgSpriteEx.SpriteRef
 
-  @inline_registry_module SvgSpriteEx.Runtime.InlineIcons
   @ref_snapshot_vsn 1
 
   @doc false
@@ -305,8 +304,7 @@ defmodule SvgSpriteEx.Ref do
 
     quote do
       %SvgSpriteEx.InlineRef{
-        name: unquote(normalized_name),
-        registry: unquote(@inline_registry_module)
+        name: unquote(normalized_name)
       }
     end
   end

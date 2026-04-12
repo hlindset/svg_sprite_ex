@@ -9,7 +9,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   @compiler_fingerprint_vsn 1
 
   alias SvgSpriteEx.Config
-  alias SvgSpriteEx.Runtime.RuntimeData
+  alias SvgSpriteEx.RuntimeData
   alias SvgSpriteEx.InlineSvgMeta
   alias SvgSpriteEx.Ref
   alias SvgSpriteEx.Source
@@ -660,7 +660,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   end
 
   defp invalidate_runtime_data_cache do
-    runtime_data_module = SvgSpriteEx.Runtime.RuntimeData
+    runtime_data_module = SvgSpriteEx.RuntimeData
 
     if Code.ensure_loaded?(runtime_data_module) and
          function_exported?(runtime_data_module, :delete, 0) do
@@ -685,7 +685,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         Enum.map(
           [
             __MODULE__,
-            SvgSpriteEx.Runtime.RuntimeData,
+            SvgSpriteEx.RuntimeData,
             SvgSpriteEx.InlineAsset,
             SvgSpriteEx.InlineSvgMeta,
             SvgSpriteEx.Ref,

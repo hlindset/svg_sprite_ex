@@ -1,4 +1,4 @@
-defmodule SvgSpriteEx.Runtime.RuntimeData do
+defmodule SvgSpriteEx.RuntimeData do
   @moduledoc false
 
   @cache_key {__MODULE__, :runtime_data}

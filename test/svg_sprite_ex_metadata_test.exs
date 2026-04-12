@@ -97,7 +97,6 @@ defmodule SvgSpriteEx.MetadataTest do
 
     assert %InlineRef{} = inline_ref = SvgSpriteEx.to_ref(inline_svg_meta)
     assert inline_ref.name == inline_svg_meta.name
-    assert inline_ref.registry == SvgSpriteEx.Runtime.InlineIcons
   end
 
   test "runtime metadata merges artifacts from multiple app code paths" do
@@ -282,31 +281,16 @@ defmodule SvgSpriteEx.MetadataTest do
     compile_runtime_metadata_app!(manifest_path, source_dir, compile_path, sprite_build_path)
   end
 
-  defp unload_runtime_modules do
-    for module <- [
-          SvgSpriteEx.Runtime.InlineIcons,
-          SvgSpriteEx.Runtime.InlineSvgs,
-          SvgSpriteEx.Runtime.SpriteSheets
-        ] do
-      :code.delete(module)
-      :code.purge(module)
-    end
-
-    :ok
-  end
-
   defp clear_runtime_data_cache do
-    SvgSpriteEx.Runtime.RuntimeData.delete()
+    SvgSpriteEx.RuntimeData.delete()
   end
 
   defp setup_runtime_loader!(compile_paths) do
-    unload_runtime_modules()
     clear_runtime_data_cache()
 
     Enum.each(Enum.reverse(compile_paths), &Code.prepend_path/1)
 
     on_exit(fn ->
-      unload_runtime_modules()
       clear_runtime_data_cache()
 
       Enum.each(compile_paths, &Code.delete_path/1)

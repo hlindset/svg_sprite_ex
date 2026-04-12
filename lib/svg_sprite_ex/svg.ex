@@ -16,6 +16,7 @@ defmodule SvgSpriteEx.Svg do
 
   alias SvgSpriteEx.InlineAsset
   alias SvgSpriteEx.InlineRef
+  alias SvgSpriteEx.RuntimeData
   alias SvgSpriteEx.SpriteRef
 
   attr :ref, :any, default: nil
@@ -44,10 +45,10 @@ defmodule SvgSpriteEx.Svg do
     |> sprite_svg()
   end
 
-  def svg(%{ref: %InlineRef{name: name, registry: registry}} = assigns) do
+  def svg(%{ref: %InlineRef{name: name}} = assigns) do
     {svg_attrs, inner_content} =
-      registry
-      |> fetch_inline_asset!(name)
+      name
+      |> fetch_inline_asset!()
       |> inline_svg_parts(assigns.rest)
 
     assigns
@@ -104,18 +105,18 @@ defmodule SvgSpriteEx.Svg do
 
   defp attr_key(key), do: key
 
-  defp fetch_inline_asset!(registry, name) do
-    case registry.fetch(name) do
+  defp fetch_inline_asset!(name) do
+    case RuntimeData.fetch_inline_asset(name) do
       {:ok, %InlineAsset{} = asset} ->
         asset
 
       :error ->
         raise ArgumentError,
-              "inline svg #{inspect(name)} was compiled into #{inspect(registry)} but could not be fetched at runtime"
+              "inline svg #{inspect(name)} was compiled but could not be fetched at runtime"
 
       other ->
         raise ArgumentError,
-              "inline svg registry #{inspect(registry)} returned an invalid result for #{inspect(name)}: #{inspect(other)}"
+              "inline svg runtime data returned an invalid result for #{inspect(name)}: #{inspect(other)}"
     end
   end
 end

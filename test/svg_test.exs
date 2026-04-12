@@ -5,26 +5,11 @@ defmodule SvgSpriteEx.SvgTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
+  alias SvgSpriteEx.InlineAsset
   alias SvgSpriteEx.InlineRef
   alias SvgSpriteEx.Svg
 
-  defmodule InlineRegistryFixture do
-    alias SvgSpriteEx.InlineAsset
-
-    def fetch("icons/alert") do
-      {:ok,
-       %InlineAsset{
-         attributes: %{"viewBox" => "0 0 24 24"},
-         inner_content: "<path d=\"M0 0h24v24H0z\" />"
-       }}
-    end
-
-    def fetch(_name), do: :error
-  end
-
-  defmodule InvalidInlineRegistryFixture do
-    def fetch("icons/bad"), do: {:ok, :invalid}
-  end
+  @runtime_data_cache_key {SvgSpriteEx.RuntimeData, :runtime_data}
 
   test "loads the module" do
     assert Code.ensure_loaded?(SvgSpriteEx)
@@ -42,9 +27,16 @@ defmodule SvgSpriteEx.SvgTest do
   end
 
   test "svg/1 renders inline svg markup from an inline ref and merges attrs" do
+    put_runtime_data(%{
+      "icons/alert" => %InlineAsset{
+        attributes: %{"viewBox" => "0 0 24 24"},
+        inner_content: "<path d=\"M0 0h24v24H0z\" />"
+      }
+    })
+
     html =
       render_component(&Svg.svg/1,
-        ref: %InlineRef{name: "icons/alert", registry: InlineRegistryFixture},
+        ref: %InlineRef{name: "icons/alert"},
         class: "size-5",
         aria_hidden: "true",
         data_role: "icon"
@@ -67,9 +59,16 @@ defmodule SvgSpriteEx.SvgTest do
   test "wrapper components can pass either sprite or inline refs through a single ref attr" do
     sprite_html = render_component(&passthrough_wrapper/1, icon: sprite_ref("regular/xmark"))
 
+    put_runtime_data(%{
+      "icons/alert" => %InlineAsset{
+        attributes: %{},
+        inner_content: "<path d=\"M0 0h24v24H0z\" />"
+      }
+    })
+
     inline_html =
       render_component(&passthrough_wrapper/1,
-        icon: %InlineRef{name: "icons/alert", registry: InlineRegistryFixture}
+        icon: %InlineRef{name: "icons/alert"}
       )
 
     assert sprite_html =~ "<use href="
@@ -88,19 +87,23 @@ defmodule SvgSpriteEx.SvgTest do
     end
   end
 
-  test "svg/1 raises when an inline ref cannot be fetched from its registry" do
+  test "svg/1 raises when an inline ref cannot be fetched at runtime" do
+    put_runtime_data(%{})
+
     assert_raise ArgumentError, ~r/could not be fetched at runtime/, fn ->
-      render_component(&Svg.svg/1,
-        ref: %InlineRef{name: "icons/missing", registry: InlineRegistryFixture}
-      )
+      render_component(&Svg.svg/1, ref: %InlineRef{name: "icons/missing"})
     end
   end
 
-  test "svg/1 raises when an inline registry returns an invalid result" do
+  test "svg/1 raises when runtime data returns an invalid result" do
+    :persistent_term.put(@runtime_data_cache_key, %{
+      data: %{inline_assets: %{"icons/bad" => :invalid}}
+    })
+
+    on_exit(fn -> :persistent_term.erase(@runtime_data_cache_key) end)
+
     assert_raise ArgumentError, ~r/returned an invalid result/, fn ->
-      render_component(&Svg.svg/1,
-        ref: %InlineRef{name: "icons/bad", registry: InvalidInlineRegistryFixture}
-      )
+      render_component(&Svg.svg/1, ref: %InlineRef{name: "icons/bad"})
     end
   end
 
@@ -114,5 +117,10 @@ defmodule SvgSpriteEx.SvgTest do
     ~H"""
     <.svg ref={@icon} class="size-4" />
     """
+  end
+
+  defp put_runtime_data(inline_assets) do
+    :persistent_term.put(@runtime_data_cache_key, %{data: %{inline_assets: inline_assets}})
+    on_exit(fn -> :persistent_term.erase(@runtime_data_cache_key) end)
   end
 end
