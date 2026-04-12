@@ -22,8 +22,8 @@ end
 ```
 
 Then register the sprite compiler ahead of the default Mix compilers so it can
-install its Elixir compile callback and discover `sprite_ref/1`, `sprite_ref/2`,
-and `inline_ref/1` usages.
+install its Elixir compile callback and collect `sprite_ref/1`, `sprite_ref/2`,
+and `inline_ref/1` usages after module compilation.
 
 ```elixir
 def project do
@@ -42,7 +42,7 @@ Note that `:svg_sprite_ex_assets` **must** appear before the `:elixir` compiler.
 When using Phoenix code reloading in development, add `:svg_sprite_ex_assets`
 to `reloadable_compilers`. Phoenix only reruns the compilers listed there
 during request-time reloads, so omitting it can still reload the page before
-the generated sprite sheet or inline registry has been rebuilt.
+the generated sprite sheet or runtime metadata data file has been rebuilt.
 
 ```elixir
 config :my_app, MyAppWeb.Endpoint,
@@ -85,10 +85,10 @@ the generated outputs.
 
 When you run `mix compile`, the compiler:
 
-- scans compiled modules for `sprite_ref` and `inline_ref` calls
+- persists one ref snapshot per module that uses the macros
 - hashes the referenced svg files and compiler inputs to detect asset changes
 - writes one svg sprite sheet per sheet name into `build_path`
-- compiles generated modules for inline svg lookup and runtime metadata lookup
+- writes a runtime data artifact that powers inline svg lookup and metadata APIs
 
 Your application must serve the generated files from the same public path you
 configured. For example: Write sprite sheets into `priv/static/svgs`, and

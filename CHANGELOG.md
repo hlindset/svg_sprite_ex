@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Made compiler invalidation aware of compiler pipeline changes, so library
+  upgrades rebuild stale sprite and metadata artifacts instead of silently
+  reusing them.
+- Replaced module scanning with persisted per-module ref snapshots written from
+  the macro layer after compilation.
+- Replaced generated runtime registry modules with a runtime data artifact and
+  static loader modules, removing the extra generated-source compile pass.
+
 ## 0.2.0 - 2026-03-25
 
 - Added a runtime metadata API for compiled sprite sheets, sprites, and inline

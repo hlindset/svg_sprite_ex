@@ -101,10 +101,12 @@ defmodule SvgSpriteEx.MetadataTest do
   defp compile_runtime_metadata!(manifest_path, source_dir, compile_path, sprite_build_path) do
     unload_generated_modules()
     Code.prepend_path(compile_path)
+    runtime_data_path = runtime_data_path(compile_path)
 
     on_exit(fn ->
       unload_generated_modules()
       Code.delete_path(compile_path)
+      File.rm_rf!(Path.dirname(Path.dirname(runtime_data_path)))
     end)
 
     assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
@@ -112,7 +114,9 @@ defmodule SvgSpriteEx.MetadataTest do
     assert :ok =
              SvgSpriteExAssets.compile_sprite_artifacts!(
                compile_path: compile_path,
+               compiler_state_path: compiler_state_path(manifest_path),
                elixir_manifest_path: manifest_path,
+               runtime_data_path: runtime_data_path,
                build_path: sprite_build_path,
                public_path: Config.public_path!(),
                source_root: Config.source_root!()
@@ -133,26 +137,38 @@ defmodule SvgSpriteEx.MetadataTest do
   end
 
   defp compile_fixture_modules!(manifest_path, source_dir, compile_path) do
-    # Note: This intentionally uses Mix's internal compile/7 API for test
-    # infrastructure. If the signature changes on Elixir upgrade, update this
-    # helper in test/svg_sprite_ex_metadata_test.exs.
-    case Mix.Compilers.Elixir.compile(
-           manifest_path,
-           [source_dir],
-           compile_path,
-           {:svg_sprite_ex_test, source_dir},
-           [],
-           [],
-           []
-         ) do
-      {:ok, _diagnostics} ->
-        :ok
+    override = compiler_state_path(manifest_path)
+    previous_override = Application.get_env(:svg_sprite_ex, :compiler_state_path_override)
+    Application.put_env(:svg_sprite_ex, :compiler_state_path_override, override)
 
-      {:noop, _diagnostics} ->
-        :ok
+    try do
+      # Note: This intentionally uses Mix's internal compile/7 API for test
+      # infrastructure. If the signature changes on Elixir upgrade, update this
+      # helper in test/svg_sprite_ex_metadata_test.exs.
+      case Mix.Compilers.Elixir.compile(
+             manifest_path,
+             [source_dir],
+             compile_path,
+             {:svg_sprite_ex_test, source_dir},
+             [],
+             [],
+             []
+           ) do
+        {:ok, _diagnostics} ->
+          :ok
 
-      {:error, diagnostics} ->
-        flunk("fixture modules failed to compile: #{inspect(diagnostics)}")
+        {:noop, _diagnostics} ->
+          :ok
+
+        {:error, diagnostics} ->
+          flunk("fixture modules failed to compile: #{inspect(diagnostics)}")
+      end
+    after
+      if is_nil(previous_override) do
+        Application.delete_env(:svg_sprite_ex, :compiler_state_path_override)
+      else
+        Application.put_env(:svg_sprite_ex, :compiler_state_path_override, previous_override)
+      end
     end
   end
 
@@ -208,6 +224,18 @@ defmodule SvgSpriteEx.MetadataTest do
     manifest_dir = Path.join(source_dir, ".mix")
     File.mkdir_p!(manifest_dir)
     Path.join(manifest_dir, "compile.elixir")
+  end
+
+  defp compiler_state_path(manifest_path) do
+    manifest_path
+    |> Path.dirname()
+    |> Path.join("svg_sprite_ex")
+  end
+
+  defp runtime_data_path(compile_path) do
+    compile_path
+    |> Path.dirname()
+    |> Path.join("priv/svg_sprite_ex/runtime_data.etf")
   end
 
   defp unique_module(suffix) do

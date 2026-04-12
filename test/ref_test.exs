@@ -228,6 +228,11 @@ defmodule SvgSpriteEx.RefTest do
       |> Path.join("svg_sprite_ex_ref_test_#{System.unique_integer([:positive])}.exs")
       |> Path.expand()
 
+    compiler_state_path =
+      System.tmp_dir!()
+      |> Path.join("svg_sprite_ex_ref_state_#{System.unique_integer([:positive])}")
+      |> Path.expand()
+
     File.write!(
       path,
       """
@@ -239,8 +244,23 @@ defmodule SvgSpriteEx.RefTest do
       """
     )
 
-    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(path) end)
-    Code.compile_file(path)
+    previous_override = Application.get_env(:svg_sprite_ex, :compiler_state_path_override)
+    Application.put_env(:svg_sprite_ex, :compiler_state_path_override, compiler_state_path)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      File.rm_rf!(path)
+      File.rm_rf!(compiler_state_path)
+    end)
+
+    try do
+      Code.compile_file(path)
+    after
+      if is_nil(previous_override) do
+        Application.delete_env(:svg_sprite_ex, :compiler_state_path_override)
+      else
+        Application.put_env(:svg_sprite_ex, :compiler_state_path_override, previous_override)
+      end
+    end
   end
 
   defp module_external_resources(module) do

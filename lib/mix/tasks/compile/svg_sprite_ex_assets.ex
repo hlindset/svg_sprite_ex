@@ -16,10 +16,6 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   alias SvgSpriteEx.SpriteSheet
   alias SvgSpriteEx.SpriteSheetMeta
 
-  @inline_registry_module SvgSpriteEx.Generated.InlineIcons
-  @inline_metadata_module SvgSpriteEx.Generated.InlineSvgs
-  @sprite_metadata_module SvgSpriteEx.Generated.SpriteSheets
-
   @impl Mix.Task.Compiler
   def run(_args) do
     register_after_elixir_hook(default_compile_opts())
@@ -50,27 +46,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
   @impl Mix.Task.Compiler
   def clean do
-    compile_path = Mix.Project.compile_path()
     compiler_state_path = compiler_state_path()
     compiler_manifest_path = compiler_manifest_path(compiler_state_path)
-
-    cleanup_generated_module(
-      compile_path,
-      generated_source_path(compiler_state_path),
-      @inline_registry_module
-    )
-
-    cleanup_generated_module(
-      compile_path,
-      inline_metadata_source_path(compiler_state_path),
-      @inline_metadata_module
-    )
-
-    cleanup_generated_module(
-      compile_path,
-      sprite_metadata_source_path(compiler_state_path),
-      @sprite_metadata_module
-    )
 
     compiler_manifest_path
     |> read_compiler_manifest()
@@ -79,6 +56,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
     File.rm(compiler_manifest_path)
     File.rm_rf(ref_snapshots_path(compiler_state_path))
+    rm_if_exists(runtime_data_path())
     :ok
   end
 
@@ -90,26 +68,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     compiler_manifest_path =
       Keyword.get(opts, :compiler_manifest_path, compiler_manifest_path(compiler_state_path))
 
-    generated_source_path =
-      Keyword.get(opts, :generated_source_path, generated_source_path(compiler_state_path))
-
-    inline_metadata_source_path =
-      Keyword.get(
-        opts,
-        :inline_metadata_source_path,
-        inline_metadata_source_path(compiler_state_path)
-      )
-
-    sprite_metadata_source_path =
-      Keyword.get(
-        opts,
-        :sprite_metadata_source_path,
-        sprite_metadata_source_path(compiler_state_path)
-      )
-
-    inline_registry_module = Keyword.get(opts, :inline_registry_module, @inline_registry_module)
-    inline_metadata_module = Keyword.get(opts, :inline_metadata_module, @inline_metadata_module)
-    sprite_metadata_module = Keyword.get(opts, :sprite_metadata_module, @sprite_metadata_module)
+    runtime_data_path = Keyword.get(opts, :runtime_data_path, runtime_data_path())
     build_path = Keyword.fetch!(opts, :build_path)
     public_path = Keyword.get(opts, :public_path, Config.public_path!())
     source_root = Keyword.fetch!(opts, :source_root)
@@ -136,12 +95,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         public_path,
         compiler_state_path,
         compiler_fingerprint,
-        generated_source_path,
-        inline_metadata_source_path,
-        sprite_metadata_source_path,
-        inline_registry_module,
-        inline_metadata_module,
-        sprite_metadata_module
+        runtime_data_path
       )
 
     if manifest_current?(compiler_manifest, input_digest) do
@@ -155,45 +109,11 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
       File.mkdir_p!(build_path)
 
       sprite_result = write_sprite_sheets(sprite_builds)
-
-      inline_result =
-        write_inline_registry(
-          compile_path,
-          generated_source_path,
-          inline_registry_module,
-          inline_sources
-        )
-
-      sprite_metadata_result =
-        write_sprite_metadata_registry(
-          compile_path,
-          sprite_metadata_source_path,
-          sprite_metadata_module,
-          sprite_metadata
-        )
-
-      inline_metadata_result =
-        write_inline_metadata_registry(
-          compile_path,
-          inline_metadata_source_path,
-          inline_metadata_module,
-          inline_svg_infos
-        )
+      runtime_data = build_runtime_data(inline_sources, inline_svg_infos, sprite_metadata)
+      runtime_data_result = write_runtime_data(runtime_data_path, runtime_data)
 
       active_artifact_paths =
-        active_artifact_paths(
-          sprite_builds,
-          compile_path,
-          generated_source_path,
-          inline_sources,
-          inline_registry_module,
-          sprite_metadata_source_path,
-          sprite_metadata,
-          sprite_metadata_module,
-          inline_metadata_source_path,
-          inline_svg_infos,
-          inline_metadata_module
-        )
+        active_artifact_paths(sprite_builds, runtime_data_path, runtime_data)
 
       manifest_cleanup_result =
         compiler_manifest
@@ -213,9 +133,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
            [
              ref_snapshot_result,
              sprite_result,
-             inline_result,
-             sprite_metadata_result,
-             inline_metadata_result,
+             runtime_data_result,
              manifest_cleanup_result,
              manifest_write_result
            ],
@@ -232,12 +150,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
       compiler_state_path: compiler_state_path(),
       compiler_manifest_path: compiler_manifest_path(),
       elixir_manifest_path: elixir_manifest_path(),
-      generated_source_path: generated_source_path(),
-      inline_metadata_source_path: inline_metadata_source_path(),
-      sprite_metadata_source_path: sprite_metadata_source_path(),
-      inline_registry_module: @inline_registry_module,
-      inline_metadata_module: @inline_metadata_module,
-      sprite_metadata_module: @sprite_metadata_module,
+      runtime_data_path: runtime_data_path(),
       build_path: Config.build_path!(),
       public_path: Config.public_path!(),
       source_root: Config.source_root!()
@@ -355,6 +268,43 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     end)
   end
 
+  defp build_runtime_data(inline_sources, inline_svg_infos, sprite_metadata) do
+    inline_assets =
+      Map.new(inline_sources, fn %Source{
+                                   name: name,
+                                   attributes: attributes,
+                                   inner_content: inner_content
+                                 } ->
+        {name, %SvgSpriteEx.InlineAsset{attributes: attributes, inner_content: inner_content}}
+      end)
+
+    inline_svg_map = Map.new(inline_svg_infos, &{&1.name, &1})
+
+    sprite_sheet_map =
+      Map.new(sprite_metadata, fn {sheet_info, _sprites} -> {sheet_info.name, sheet_info} end)
+
+    sprites_in_sheet =
+      Map.new(sprite_metadata, fn {sheet_info, sprites} -> {sheet_info.name, sprites} end)
+
+    %{
+      vsn: 1,
+      inline_assets: inline_assets,
+      inline_svgs: inline_svg_infos,
+      inline_svg_map: inline_svg_map,
+      sprite_sheets: Enum.map(sprite_metadata, fn {sheet_info, _sprites} -> sheet_info end),
+      sprite_sheet_map: sprite_sheet_map,
+      sprites_in_sheet: sprites_in_sheet
+    }
+  end
+
+  defp runtime_data_artifact_paths(runtime_data_path, runtime_data) do
+    if runtime_data == empty_runtime_data() do
+      []
+    else
+      [runtime_data_path]
+    end
+  end
+
   defp input_digest(
          sprite_refs,
          inline_refs,
@@ -363,12 +313,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
          public_path,
          compiler_state_path,
          compiler_fingerprint,
-         generated_source_path,
-         inline_metadata_source_path,
-         sprite_metadata_source_path,
-         inline_registry_module,
-         inline_metadata_module,
-         sprite_metadata_module
+         runtime_data_path
        ) do
     digest_input = %{
       sprite_refs: sprite_refs,
@@ -379,12 +324,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
       public_path: public_path,
       compiler_state_path: compiler_state_path,
       compiler_fingerprint: compiler_fingerprint,
-      generated_source_path: generated_source_path,
-      inline_metadata_source_path: inline_metadata_source_path,
-      sprite_metadata_source_path: sprite_metadata_source_path,
-      inline_registry_module: inline_registry_module,
-      inline_metadata_module: inline_metadata_module,
-      sprite_metadata_module: sprite_metadata_module
+      runtime_data_path: runtime_data_path
     }
 
     term_digest(digest_input)
@@ -418,47 +358,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     |> then(&:crypto.hash(:sha256, &1))
   end
 
-  defp active_artifact_paths(
-         sprite_builds,
-         compile_path,
-         generated_source_path,
-         inline_sources,
-         inline_registry_module,
-         sprite_metadata_source_path,
-         sprite_metadata,
-         sprite_metadata_module,
-         inline_metadata_source_path,
-         inline_svg_infos,
-         inline_metadata_module
-       ) do
-    sprite_artifacts = Map.keys(sprite_builds)
-
-    inline_artifacts =
-      generated_module_artifact_paths(
-        compile_path,
-        generated_source_path,
-        inline_sources,
-        inline_registry_module
-      )
-
-    sprite_metadata_artifacts =
-      generated_module_artifact_paths(
-        compile_path,
-        sprite_metadata_source_path,
-        sprite_metadata,
-        sprite_metadata_module
-      )
-
-    inline_metadata_artifacts =
-      generated_module_artifact_paths(
-        compile_path,
-        inline_metadata_source_path,
-        inline_svg_infos,
-        inline_metadata_module
-      )
-
-    (sprite_artifacts ++
-       inline_artifacts ++ sprite_metadata_artifacts ++ inline_metadata_artifacts)
+  defp active_artifact_paths(sprite_builds, runtime_data_path, runtime_data) do
+    (Map.keys(sprite_builds) ++ runtime_data_artifact_paths(runtime_data_path, runtime_data))
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -486,326 +387,12 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     |> changed()
   end
 
-  defp write_inline_registry(
-         compile_path,
-         generated_source_path,
-         inline_registry_module,
-         []
-       ) do
-    cleanup_generated_module(compile_path, generated_source_path, inline_registry_module)
-  end
-
-  defp write_inline_registry(
-         compile_path,
-         generated_source_path,
-         inline_registry_module,
-         inline_sources
-       ) do
-    source = build_inline_registry_source(inline_registry_module, inline_sources)
-
-    write_generated_module(
-      compile_path,
-      generated_source_path,
-      inline_registry_module,
-      source,
-      "inline registry"
-    )
-  end
-
-  defp write_generated_source(path, source) do
-    write_if_changed(path, source)
-  end
-
-  defp write_sprite_metadata_registry(
-         compile_path,
-         generated_source_path,
-         sprite_metadata_module,
-         []
-       ) do
-    cleanup_generated_module(compile_path, generated_source_path, sprite_metadata_module)
-  end
-
-  defp write_sprite_metadata_registry(
-         compile_path,
-         generated_source_path,
-         sprite_metadata_module,
-         sprite_metadata
-       ) do
-    source = build_sprite_metadata_registry_source(sprite_metadata_module, sprite_metadata)
-
-    write_generated_module(
-      compile_path,
-      generated_source_path,
-      sprite_metadata_module,
-      source,
-      "sprite metadata registry"
-    )
-  end
-
-  defp write_inline_metadata_registry(
-         compile_path,
-         generated_source_path,
-         inline_metadata_module,
-         []
-       ) do
-    cleanup_generated_module(compile_path, generated_source_path, inline_metadata_module)
-  end
-
-  defp write_inline_metadata_registry(
-         compile_path,
-         generated_source_path,
-         inline_metadata_module,
-         inline_svg_infos
-       ) do
-    source = build_inline_metadata_registry_source(inline_metadata_module, inline_svg_infos)
-
-    write_generated_module(
-      compile_path,
-      generated_source_path,
-      inline_metadata_module,
-      source,
-      "inline metadata registry"
-    )
-  end
-
-  defp write_generated_module(
-         compile_path,
-         generated_source_path,
-         generated_module,
-         source,
-         description
-       ) do
-    write_status = write_generated_source(generated_source_path, source)
-
-    compile_status =
-      compile_generated_module(
-        compile_path,
-        generated_source_path,
-        generated_module,
-        write_status,
-        description
-      )
-
-    changed([write_status, compile_status])
-  end
-
-  defp compile_generated_module(
-         compile_path,
-         generated_source_path,
-         generated_module,
-         write_status,
-         description
-       ) do
-    beam_path = generated_beam_path(compile_path, generated_module)
-
-    if write_status == :noop and File.exists?(beam_path) do
-      :noop
+  defp write_runtime_data(runtime_data_path, runtime_data) do
+    if runtime_data == empty_runtime_data() do
+      rm_if_exists(runtime_data_path)
     else
-      unload_generated_module(generated_module)
-
-      with_generated_module_conflicts_ignored(fn ->
-        case Kernel.ParallelCompiler.compile_to_path([generated_source_path], compile_path,
-               return_diagnostics: true
-             ) do
-          {:ok, _modules, _warnings} ->
-            unload_generated_module(generated_module)
-            :ok
-
-          {:error, errors, warnings} ->
-            diagnostics =
-              Enum.map(List.wrap(errors), &diagnostic_message/1) ++ warning_messages(warnings)
-
-            raise Mix.Error,
-              message:
-                "failed to compile generated #{description}:\n#{Enum.join(diagnostics, "\n")}"
-        end
-      end)
+      write_if_changed(runtime_data_path, :erlang.term_to_binary(runtime_data))
     end
-  end
-
-  defp with_generated_module_conflicts_ignored(fun) when is_function(fun, 0) do
-    previous_value = Code.compiler_options()[:ignore_module_conflict]
-
-    try do
-      Code.put_compiler_option(:ignore_module_conflict, true)
-      fun.()
-    after
-      Code.put_compiler_option(:ignore_module_conflict, previous_value)
-    end
-  end
-
-  defp cleanup_generated_module(compile_path, generated_source_path, generated_module) do
-    unload_generated_module(generated_module)
-
-    changed([
-      rm_if_exists(generated_source_path),
-      rm_if_exists(generated_beam_path(compile_path, generated_module))
-    ])
-  end
-
-  defp generated_module_artifact_paths(
-         _compile_path,
-         _generated_source_path,
-         [],
-         _generated_module
-       ),
-       do: []
-
-  defp generated_module_artifact_paths(
-         compile_path,
-         generated_source_path,
-         _entries,
-         generated_module
-       ) do
-    [generated_source_path, generated_beam_path(compile_path, generated_module)]
-  end
-
-  defp build_inline_registry_source(inline_registry_module, inline_sources) do
-    inline_registry_module
-    |> build_inline_registry_ast(inline_sources)
-    |> Macro.to_string()
-    |> Kernel.<>("\n")
-  end
-
-  defp build_inline_registry_ast(inline_registry_module, inline_sources) do
-    external_resource_asts =
-      Enum.map(inline_sources, fn %Source{file_path: file_path} ->
-        quote do
-          @external_resource unquote(file_path)
-        end
-      end)
-
-    fetch_clause_asts =
-      Enum.map(inline_sources, fn %Source{
-                                    name: name,
-                                    attributes: attributes,
-                                    inner_content: inner_content
-                                  } ->
-        attrs_ast = literal_map_ast(attributes)
-
-        quote do
-          def fetch(unquote(name)) do
-            {:ok,
-             %InlineAsset{
-               attributes: unquote(attrs_ast),
-               inner_content: unquote(inner_content)
-             }}
-          end
-        end
-      end)
-
-    inline_names = Enum.map(inline_sources, & &1.name)
-
-    quote do
-      defmodule unquote(inline_registry_module) do
-        @moduledoc false
-
-        alias SvgSpriteEx.InlineAsset
-
-        unquote_splicing(external_resource_asts)
-
-        @spec fetch(String.t()) :: {:ok, InlineAsset.t()} | :error
-        unquote_splicing(fetch_clause_asts)
-        def fetch(_name), do: :error
-
-        @spec names() :: [String.t()]
-        def names, do: unquote(inline_names)
-      end
-    end
-  end
-
-  defp build_sprite_metadata_registry_source(sprite_metadata_module, sprite_metadata) do
-    sprite_metadata_module
-    |> build_sprite_metadata_registry_ast(sprite_metadata)
-    |> Macro.to_string()
-    |> Kernel.<>("\n")
-  end
-
-  defp build_sprite_metadata_registry_ast(sprite_metadata_module, sprite_metadata) do
-    sprite_sheets = Enum.map(sprite_metadata, fn {sheet_info, _sprites} -> sheet_info end)
-
-    sprite_sheet_clause_asts =
-      Enum.map(sprite_metadata, fn {%SpriteSheetMeta{name: name} = sheet_info, _sprites} ->
-        sheet_info_ast = Macro.escape(sheet_info)
-
-        quote do
-          def sprite_sheet(unquote(name)), do: unquote(sheet_info_ast)
-        end
-      end)
-
-    sprites_in_sheet_clause_asts =
-      Enum.map(sprite_metadata, fn {%SpriteSheetMeta{name: name}, sprites} ->
-        sprites_ast = Macro.escape(sprites)
-
-        quote do
-          def sprites_in_sheet(unquote(name)), do: unquote(sprites_ast)
-        end
-      end)
-
-    sprite_sheets_ast = Macro.escape(sprite_sheets)
-
-    quote do
-      defmodule unquote(sprite_metadata_module) do
-        @moduledoc false
-
-        alias SvgSpriteEx.SpriteMeta
-        alias SvgSpriteEx.SpriteSheetMeta
-
-        @spec sprite_sheets() :: [SpriteSheetMeta.t()]
-        def sprite_sheets, do: unquote(sprite_sheets_ast)
-
-        @spec sprite_sheet(String.t()) :: SpriteSheetMeta.t() | nil
-        unquote_splicing(sprite_sheet_clause_asts)
-        def sprite_sheet(_name), do: nil
-
-        @spec sprites_in_sheet(String.t()) :: [SpriteMeta.t()]
-        unquote_splicing(sprites_in_sheet_clause_asts)
-        def sprites_in_sheet(_name), do: []
-      end
-    end
-  end
-
-  defp build_inline_metadata_registry_source(inline_metadata_module, inline_svg_infos) do
-    inline_metadata_module
-    |> build_inline_metadata_registry_ast(inline_svg_infos)
-    |> Macro.to_string()
-    |> Kernel.<>("\n")
-  end
-
-  defp build_inline_metadata_registry_ast(inline_metadata_module, inline_svg_infos) do
-    inline_svg_clause_asts =
-      Enum.map(inline_svg_infos, fn %InlineSvgMeta{name: name} = inline_svg_info ->
-        inline_svg_info_ast = Macro.escape(inline_svg_info)
-
-        quote do
-          def inline_svg(unquote(name)), do: unquote(inline_svg_info_ast)
-        end
-      end)
-
-    inline_svg_infos_ast = Macro.escape(inline_svg_infos)
-
-    quote do
-      defmodule unquote(inline_metadata_module) do
-        @moduledoc false
-
-        alias SvgSpriteEx.InlineSvgMeta
-
-        @spec inline_svgs() :: [InlineSvgMeta.t()]
-        def inline_svgs, do: unquote(inline_svg_infos_ast)
-
-        @spec inline_svg(String.t()) :: InlineSvgMeta.t() | nil
-        unquote_splicing(inline_svg_clause_asts)
-        def inline_svg(_name), do: nil
-      end
-    end
-  end
-
-  defp generated_beam_path(compile_path, generated_module) do
-    Path.join(compile_path, Atom.to_string(generated_module) <> ".beam")
-  end
-
-  defp generated_source_path do
-    generated_source_path(compiler_state_path())
   end
 
   defp compiler_manifest_path do
@@ -817,52 +404,25 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     |> Path.join("compile.svg_sprite_ex_assets")
   end
 
-  defp inline_metadata_source_path do
-    inline_metadata_source_path(compiler_state_path())
-  end
-
-  defp sprite_metadata_source_path do
-    sprite_metadata_source_path(compiler_state_path())
-  end
-
-  defp generated_source_path(compiler_state_path) do
-    compiler_state_path
-    |> Path.join("svg_sprite_ex_generated_inline_icons.ex")
-  end
-
-  defp inline_metadata_source_path(compiler_state_path) do
-    compiler_state_path
-    |> Path.join("svg_sprite_ex_generated_inline_svgs.ex")
-  end
-
-  defp sprite_metadata_source_path(compiler_state_path) do
-    compiler_state_path
-    |> Path.join("svg_sprite_ex_generated_sprite_sheets.ex")
+  defp runtime_data_path do
+    Mix.Project.app_path()
+    |> Path.join("priv/svg_sprite_ex/runtime_data.etf")
   end
 
   defp ref_snapshots_path(compiler_state_path) do
     Path.join(compiler_state_path, "refs")
   end
 
-  defp unload_generated_module(generated_module) do
-    :code.purge(generated_module)
-    :code.delete(generated_module)
-    :code.purge(generated_module)
-    :ok
-  end
-
-  defp warning_messages(%{compile_warnings: compile_warnings, runtime_warnings: runtime_warnings}) do
-    Enum.map(compile_warnings ++ runtime_warnings, &diagnostic_message/1)
-  end
-
-  defp warning_messages(_warnings), do: []
-
-  defp diagnostic_message(%{message: message}), do: message
-  defp diagnostic_message(message) when is_binary(message), do: message
-  defp diagnostic_message(other), do: inspect(other)
-
-  defp literal_map_ast(map) do
-    {:%{}, [], Enum.map(Enum.sort(map), fn {key, value} -> {key, value} end)}
+  defp empty_runtime_data do
+    %{
+      vsn: 1,
+      inline_assets: %{},
+      inline_svgs: [],
+      inline_svg_map: %{},
+      sprite_sheets: [],
+      sprite_sheet_map: %{},
+      sprites_in_sheet: %{}
+    }
   end
 
   defp read_compiler_manifest(path) do
