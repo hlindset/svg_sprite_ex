@@ -476,7 +476,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
              )
 
     assert File.exists?(compiler_manifest_path)
-    assert tracked_ref_snapshots_bootstrapped(compiler_manifest_path)
+    assert tracked_ref_snapshot_state(compiler_manifest_path) == :stable
     File.rm!(ref_snapshot_path(manifest_path, inline_module))
     refute File.exists?(ref_snapshot_path(manifest_path, inline_module))
 
@@ -499,7 +499,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     runtime_data = read_runtime_data!(runtime_data_path)
     assert Map.has_key?(runtime_data.inline_assets, "regular/xmark")
     assert Enum.any?(runtime_data.sprite_sheets, &(&1.name == "alerts"))
-    refute tracked_ref_snapshots_bootstrapped(compiler_manifest_path)
+    assert tracked_ref_snapshot_state(compiler_manifest_path) == :settling
 
     assert :ok =
              SvgSpriteExAssets.compile_sprite_artifacts!(
@@ -513,7 +513,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
                source_root: Config.source_root!()
              )
 
-    assert tracked_ref_snapshots_bootstrapped(compiler_manifest_path)
+    assert tracked_ref_snapshot_state(compiler_manifest_path) == :stable
   end
 
   test "compile_sprite_artifacts!/1 rewrites legacy ref snapshots to the versioned format" do
@@ -560,7 +560,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     runtime_data = read_runtime_data!(runtime_data_path)
     assert Map.has_key?(runtime_data.inline_assets, "regular/xmark")
     assert Enum.any?(runtime_data.sprite_sheets, &(&1.name == "alerts"))
-    refute tracked_ref_snapshots_bootstrapped(compiler_manifest_path)
+    assert tracked_ref_snapshot_state(compiler_manifest_path) == :settling
   end
 
   test "compile_sprite_artifacts!/1 only removes manifest-tracked sprite outputs" do
@@ -912,6 +912,52 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert is_binary(tracked_input_digest(compiler_manifest_path))
   end
 
+  test "compile_sprite_artifacts!/1 reads legacy snapshot stabilization flags from v3 manifests" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    runtime_data_path = runtime_data_path(manifest_path)
+
+    write_inline_fixture_module!(source_dir, unique_module(:legacy_snapshot_state_fixture),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_state_path: compiler_state_path(manifest_path),
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               runtime_data_path: runtime_data_path,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    write_v3_manifest!(
+      compiler_manifest_path,
+      tracked_artifact_paths(compiler_manifest_path),
+      tracked_input_digest(compiler_manifest_path),
+      true
+    )
+
+    assert :noop =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_state_path: compiler_state_path(manifest_path),
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               runtime_data_path: runtime_data_path,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    assert tracked_ref_snapshot_state(compiler_manifest_path) == :stable
+  end
+
   test "compile_sprite_artifacts!/1 rebuilds when the compiler fingerprint changes" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
@@ -1137,14 +1183,23 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     end
   end
 
-  defp tracked_ref_snapshots_bootstrapped(path) do
+  defp tracked_ref_snapshot_state(path) do
     case File.read(path) do
       {:ok, binary} ->
         :erlang.binary_to_term(binary, [:safe])
-        |> Map.get(:ref_snapshots_bootstrapped, false)
+        |> case do
+          %{ref_snapshot_state: ref_snapshot_state} ->
+            ref_snapshot_state
+
+          %{ref_snapshots_bootstrapped: ref_snapshots_bootstrapped} ->
+            if(ref_snapshots_bootstrapped, do: :stable, else: :settling)
+
+          _other ->
+            :settling
+        end
 
       {:error, :enoent} ->
-        false
+        :settling
     end
   end
 
@@ -1172,6 +1227,18 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
   defp write_legacy_manifest!(path, artifact_paths) do
     File.write!(path, :erlang.term_to_binary(%{vsn: 1, artifact_paths: artifact_paths}))
+  end
+
+  defp write_v3_manifest!(path, artifact_paths, input_digest, ref_snapshots_bootstrapped) do
+    File.write!(
+      path,
+      :erlang.term_to_binary(%{
+        vsn: 3,
+        artifact_paths: artifact_paths,
+        input_digest: input_digest,
+        ref_snapshots_bootstrapped: ref_snapshots_bootstrapped
+      })
+    )
   end
 
   defp write_legacy_ref_snapshot!(path, snapshot) do

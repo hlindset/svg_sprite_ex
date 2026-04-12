@@ -5,7 +5,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
   @recursive true
   @shortdoc "Builds application SVG sprite sheets"
-  @manifest_vsn 3
+  @manifest_vsn 4
   @compiler_fingerprint_vsn 1
 
   alias SvgSpriteEx.Config
@@ -80,12 +80,12 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     compiler_manifest = read_compiler_manifest(compiler_manifest_path)
     modules = project_modules(elixir_manifest_path)
 
-    {sprite_refs, inline_refs, ref_snapshot_result, ref_snapshots_bootstrapped} =
+    {sprite_refs, inline_refs, ref_snapshot_result, ref_snapshot_state} =
       collect_project_refs(
         compile_path,
         compiler_state_path,
         modules,
-        not compiler_manifest.ref_snapshots_bootstrapped
+        compiler_manifest.ref_snapshot_state == :settling
       )
 
     compiler_fingerprint = Keyword.get(opts, :compiler_fingerprint, compiler_fingerprint())
@@ -108,7 +108,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
           compiler_manifest,
           compiler_manifest_path,
           input_digest,
-          ref_snapshots_bootstrapped
+          ref_snapshot_state
         )
 
       changed([ref_snapshot_result, manifest_write_result])
@@ -138,7 +138,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
           compiler_manifest_path,
           active_artifact_paths,
           input_digest,
-          ref_snapshots_bootstrapped
+          ref_snapshot_state
         )
 
       invalidate_runtime_data_cache()
@@ -229,10 +229,14 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
       |> Enum.sort()
 
     ref_snapshot_results = Enum.map(snapshot_results, &elem(&1, 0))
-    ref_snapshots_bootstrapped = Enum.all?(snapshot_results, &elem(&1, 1))
+
+    ref_snapshot_state =
+      if Enum.all?(snapshot_results, &elem(&1, 1)),
+        do: :stable,
+        else: :settling
 
     {sprite_refs, inline_refs, changed([stale_snapshot_result | ref_snapshot_results]),
-     ref_snapshots_bootstrapped}
+     ref_snapshot_state}
   end
 
   defp build_sprite_metadata(sprite_refs, build_path, public_path, source_root) do
@@ -440,6 +444,20 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
             vsn: @manifest_vsn,
             artifact_paths: artifact_paths,
             input_digest: input_digest,
+            ref_snapshot_state: ref_snapshot_state
+          }
+          when is_list(artifact_paths) and is_binary(input_digest) and
+                 ref_snapshot_state in [:stable, :settling] ->
+            %{
+              artifact_paths: artifact_paths,
+              input_digest: input_digest,
+              ref_snapshot_state: ref_snapshot_state
+            }
+
+          %{
+            vsn: 3,
+            artifact_paths: artifact_paths,
+            input_digest: input_digest,
             ref_snapshots_bootstrapped: ref_snapshots_bootstrapped
           }
           when is_list(artifact_paths) and is_binary(input_digest) and
@@ -447,14 +465,14 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
             %{
               artifact_paths: artifact_paths,
               input_digest: input_digest,
-              ref_snapshots_bootstrapped: ref_snapshots_bootstrapped
+              ref_snapshot_state: if(ref_snapshots_bootstrapped, do: :stable, else: :settling)
             }
 
           %{artifact_paths: artifact_paths} when is_list(artifact_paths) ->
             %{
               artifact_paths: artifact_paths,
               input_digest: nil,
-              ref_snapshots_bootstrapped: false
+              ref_snapshot_state: :settling
             }
 
           _other ->
@@ -466,13 +484,13 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     end
   end
 
-  defp write_compiler_manifest(path, artifact_paths, input_digest, ref_snapshots_bootstrapped) do
+  defp write_compiler_manifest(path, artifact_paths, input_digest, ref_snapshot_state) do
     manifest =
       %{
         vsn: @manifest_vsn,
         artifact_paths: artifact_paths,
         input_digest: input_digest,
-        ref_snapshots_bootstrapped: ref_snapshots_bootstrapped
+        ref_snapshot_state: ref_snapshot_state
       }
       |> :erlang.term_to_binary()
 
@@ -480,10 +498,10 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   end
 
   defp maybe_write_compiler_manifest(
-         %{ref_snapshots_bootstrapped: ref_snapshots_bootstrapped},
+         %{ref_snapshot_state: ref_snapshot_state},
          _compiler_manifest_path,
          _input_digest,
-         ref_snapshots_bootstrapped
+         ref_snapshot_state
        ) do
     :noop
   end
@@ -492,13 +510,13 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
          %{artifact_paths: artifact_paths},
          compiler_manifest_path,
          input_digest,
-         ref_snapshots_bootstrapped
+         ref_snapshot_state
        ) do
     write_compiler_manifest(
       compiler_manifest_path,
       artifact_paths,
       input_digest,
-      ref_snapshots_bootstrapped
+      ref_snapshot_state
     )
   end
 
@@ -513,7 +531,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   defp manifest_current?(_manifest, _input_digest), do: false
 
   defp empty_manifest,
-    do: %{artifact_paths: [], input_digest: nil, ref_snapshots_bootstrapped: false}
+    do: %{artifact_paths: [], input_digest: nil, ref_snapshot_state: :settling}
 
   defp cleanup_artifact_paths([]), do: :noop
 
