@@ -155,6 +155,43 @@ defmodule SvgSpriteEx.MetadataTest do
     assert File.exists?(runtime_data_path(compile_path_two))
   end
 
+  test "runtime metadata ignores stale runtime data artifacts from sibling apps" do
+    {source_dir, manifest_path, compile_path, sprite_build_path} = runtime_fixture_paths!()
+
+    {_stale_source_dir, _stale_manifest_path, stale_compile_path, _stale_sprite_build_path} =
+      runtime_fixture_paths!()
+
+    write_inline_fixture_module!(source_dir, unique_module(:current_runtime_fixture),
+      name: "regular/xmark"
+    )
+
+    write_runtime_data_file!(stale_compile_path, %{
+      vsn: 2,
+      inline_assets: %{
+        "regular/xmark" => %SvgSpriteEx.InlineAsset{attributes: %{}, inner_content: "<path />"}
+      },
+      inline_svgs: [%InlineSvgMeta{name: "regular/xmark", source_path: "/tmp/stale.svg"}],
+      inline_svg_map: %{
+        "regular/xmark" => %InlineSvgMeta{name: "regular/xmark", source_path: "/tmp/stale.svg"}
+      },
+      sprite_sheets: [],
+      sprite_sheet_map: %{},
+      sprites_in_sheet: %{}
+    })
+
+    setup_runtime_loader!([stale_compile_path, compile_path])
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path,
+               source_dir,
+               compile_path,
+               sprite_build_path
+             )
+
+    assert [%InlineSvgMeta{name: "regular/xmark"}] = SvgSpriteEx.inline_svgs()
+  end
+
   test "runtime metadata rejects duplicate sheet names across app code paths" do
     {source_dir_one, manifest_path_one, compile_path_one, sprite_build_path_one} =
       runtime_fixture_paths!()
@@ -195,6 +232,24 @@ defmodule SvgSpriteEx.MetadataTest do
                  fn ->
                    SvgSpriteEx.sprite_sheets()
                  end
+  end
+
+  test "runtime metadata raises for malformed current-version artifacts" do
+    {_source_dir, _manifest_path, compile_path, _sprite_build_path} = runtime_fixture_paths!()
+
+    write_runtime_data_file!(compile_path, %{
+      vsn: SvgSpriteEx.RuntimeData.runtime_data_vsn(),
+      inline_assets: :bad,
+      inline_svg_map: %{},
+      sprite_sheet_map: %{},
+      sprites_in_sheet: %{}
+    })
+
+    setup_runtime_loader!([compile_path])
+
+    assert_raise ArgumentError, ~r/invalid svg_sprite_ex runtime data/, fn ->
+      SvgSpriteEx.inline_svgs()
+    end
   end
 
   test "runtime metadata rejects duplicate inline asset names across app code paths" do
@@ -380,6 +435,13 @@ defmodule SvgSpriteEx.MetadataTest do
     compile_path
     |> Path.dirname()
     |> Path.join("priv/svg_sprite_ex/runtime_data.etf")
+  end
+
+  defp write_runtime_data_file!(compile_path, runtime_data) do
+    path = runtime_data_path(compile_path)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, :erlang.term_to_binary(runtime_data))
+    path
   end
 
   defp unique_module(suffix) do

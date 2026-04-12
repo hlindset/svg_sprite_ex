@@ -2,7 +2,7 @@ defmodule SvgSpriteEx.RuntimeData do
   @moduledoc false
 
   @cache_key {__MODULE__, :runtime_data}
-  @runtime_data_vsn 2
+  @runtime_data_vsn 3
 
   def runtime_data_vsn, do: @runtime_data_vsn
 
@@ -59,10 +59,14 @@ defmodule SvgSpriteEx.RuntimeData do
 
   defp load_runtime_data(paths) do
     paths
-    |> Enum.reduce(empty_runtime_data(), fn path, merged_data ->
-      path
-      |> read_runtime_data!()
-      |> merge_runtime_data(path, merged_data)
+    |> Enum.reduce(empty_merged_runtime_data(), fn path, merged_data ->
+      case read_runtime_data(path) do
+        {:ok, file_data} ->
+          merge_runtime_data(file_data, path, merged_data)
+
+        :skip ->
+          merged_data
+      end
     end)
     |> finalize_runtime_data()
   end
@@ -86,19 +90,21 @@ defmodule SvgSpriteEx.RuntimeData do
     runtime_data = Map.drop(merged_data, [:inline_sources, :sheet_sources])
 
     %{
-      runtime_data
-      | inline_svgs:
-          runtime_data.inline_svg_map
-          |> Map.values()
-          |> Enum.sort_by(& &1.name),
-        sprite_sheets:
-          runtime_data.sprite_sheet_map
-          |> Map.values()
-          |> Enum.sort_by(& &1.name),
-        sprites_in_sheet:
-          Map.new(runtime_data.sprites_in_sheet, fn {sheet, sprites} ->
-            {sheet, Enum.sort_by(sprites, & &1.name)}
-          end)
+      inline_assets: runtime_data.inline_assets,
+      inline_svgs:
+        runtime_data.inline_svg_map
+        |> Map.values()
+        |> Enum.sort_by(& &1.name),
+      inline_svg_map: runtime_data.inline_svg_map,
+      sprite_sheets:
+        runtime_data.sprite_sheet_map
+        |> Map.values()
+        |> Enum.sort_by(& &1.name),
+      sprite_sheet_map: runtime_data.sprite_sheet_map,
+      sprites_in_sheet:
+        Map.new(runtime_data.sprites_in_sheet, fn {sheet, sprites} ->
+          {sheet, Enum.sort_by(sprites, & &1.name)}
+        end)
     }
   end
 
@@ -154,14 +160,14 @@ defmodule SvgSpriteEx.RuntimeData do
             "#{inspect(existing_path)} and #{inspect(path)}; inline asset names must be unique across apps on the code path"
   end
 
-  defp read_runtime_data!(path) do
+  defp read_runtime_data(path) do
     path
     |> File.read!()
     |> :erlang.binary_to_term([:safe])
-    |> validate_runtime_data!(path)
+    |> validate_runtime_data(path)
   end
 
-  defp validate_runtime_data!(
+  defp validate_runtime_data(
          %{
            vsn: @runtime_data_vsn,
            inline_assets: inline_assets,
@@ -173,10 +179,17 @@ defmodule SvgSpriteEx.RuntimeData do
        )
        when is_map(inline_assets) and is_map(inline_svg_map) and is_map(sprite_sheet_map) and
               is_map(sprites_in_sheet) do
-    runtime_data
+    {:ok, runtime_data}
   end
 
-  defp validate_runtime_data!(runtime_data, path) do
+  defp validate_runtime_data(%{vsn: @runtime_data_vsn} = runtime_data, path) do
+    raise ArgumentError,
+          "invalid svg_sprite_ex runtime data at #{path}: #{inspect(runtime_data)}"
+  end
+
+  defp validate_runtime_data(%{vsn: _other_vsn}, _path), do: :skip
+
+  defp validate_runtime_data(runtime_data, path) do
     raise ArgumentError,
           "invalid svg_sprite_ex runtime data at #{path}: #{inspect(runtime_data)}"
   end
@@ -194,14 +207,12 @@ defmodule SvgSpriteEx.RuntimeData do
     |> Enum.sort()
   end
 
-  defp empty_runtime_data do
+  defp empty_merged_runtime_data do
     %{
       inline_assets: %{},
-      inline_svgs: [],
       inline_svg_map: %{},
       inline_sources: %{},
       sheet_sources: %{},
-      sprite_sheets: [],
       sprite_sheet_map: %{},
       sprites_in_sheet: %{}
     }
