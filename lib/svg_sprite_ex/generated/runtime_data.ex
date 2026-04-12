@@ -68,12 +68,14 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
   end
 
   defp merge_runtime_data(file_data, path, merged_data) do
+    inline_sources = register_inline_sources!(merged_data.inline_sources, file_data, path)
     sheet_sources = register_sheet_sources!(merged_data.sheet_sources, file_data, path)
 
     %{
       merged_data
       | inline_assets: Map.merge(merged_data.inline_assets, file_data.inline_assets),
         inline_svg_map: Map.merge(merged_data.inline_svg_map, file_data.inline_svg_map),
+        inline_sources: inline_sources,
         sprite_sheet_map: Map.merge(merged_data.sprite_sheet_map, file_data.sprite_sheet_map),
         sprites_in_sheet: Map.merge(merged_data.sprites_in_sheet, file_data.sprites_in_sheet),
         sheet_sources: sheet_sources
@@ -81,7 +83,7 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
   end
 
   defp finalize_runtime_data(merged_data) do
-    runtime_data = Map.drop(merged_data, [:sheet_sources])
+    runtime_data = Map.drop(merged_data, [:inline_sources, :sheet_sources])
 
     %{
       runtime_data
@@ -114,6 +116,26 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
     end)
   end
 
+  defp register_inline_sources!(inline_sources, file_data, path) do
+    file_data
+    |> inline_names()
+    |> Enum.reduce(inline_sources, fn name, acc ->
+      case acc do
+        %{^name => existing_path} ->
+          raise_duplicate_inline_error!(name, existing_path, path)
+
+        %{} ->
+          Map.put(acc, name, path)
+      end
+    end)
+  end
+
+  defp inline_names(file_data) do
+    (Map.keys(file_data.inline_assets) ++ Map.keys(file_data.inline_svg_map))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
   defp sheet_names(file_data) do
     (Map.keys(file_data.sprite_sheet_map) ++ Map.keys(file_data.sprites_in_sheet))
     |> Enum.uniq()
@@ -124,6 +146,12 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
     raise ArgumentError,
           "duplicate svg_sprite_ex sheet #{inspect(sheet)} in runtime data files " <>
             "#{inspect(existing_path)} and #{inspect(path)}; sheet names must be unique across apps on the code path"
+  end
+
+  defp raise_duplicate_inline_error!(name, existing_path, path) do
+    raise ArgumentError,
+          "duplicate svg_sprite_ex inline asset #{inspect(name)} in runtime data files " <>
+            "#{inspect(existing_path)} and #{inspect(path)}; inline asset names must be unique across apps on the code path"
   end
 
   defp read_runtime_data!(path) do
@@ -171,6 +199,7 @@ defmodule SvgSpriteEx.Generated.RuntimeData do
       inline_assets: %{},
       inline_svgs: [],
       inline_svg_map: %{},
+      inline_sources: %{},
       sheet_sources: %{},
       sprite_sheets: [],
       sprite_sheet_map: %{},

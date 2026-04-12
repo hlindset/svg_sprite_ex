@@ -198,6 +198,48 @@ defmodule SvgSpriteEx.MetadataTest do
                  end
   end
 
+  test "runtime metadata rejects duplicate inline asset names across app code paths" do
+    {source_dir_one, manifest_path_one, compile_path_one, sprite_build_path_one} =
+      runtime_fixture_paths!()
+
+    {source_dir_two, manifest_path_two, compile_path_two, sprite_build_path_two} =
+      runtime_fixture_paths!()
+
+    write_inline_fixture_module!(source_dir_one, unique_module(:duplicate_inline_one_fixture),
+      name: "regular/xmark"
+    )
+
+    write_inline_fixture_module!(source_dir_two, unique_module(:duplicate_inline_two_fixture),
+      name: "regular/xmark"
+    )
+
+    setup_runtime_loader!([compile_path_one, compile_path_two])
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path_one,
+               source_dir_one,
+               compile_path_one,
+               sprite_build_path_one
+             )
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path_two,
+               source_dir_two,
+               compile_path_two,
+               sprite_build_path_two
+             )
+
+    clear_runtime_data_cache()
+
+    assert_raise ArgumentError,
+                 ~r/inline asset names must be unique across apps on the code path/,
+                 fn ->
+                   SvgSpriteEx.inline_svgs()
+                 end
+  end
+
   test "runtime metadata cache reloads after compiler updates artifacts" do
     {source_dir, manifest_path, compile_path, sprite_build_path} = runtime_fixture_paths!()
 
