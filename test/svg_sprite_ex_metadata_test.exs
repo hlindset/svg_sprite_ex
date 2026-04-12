@@ -259,7 +259,7 @@ defmodule SvgSpriteEx.MetadataTest do
     unload_generated_modules()
     clear_runtime_data_cache()
 
-    Enum.each(compile_paths, &Code.prepend_path/1)
+    Enum.each(Enum.reverse(compile_paths), &Code.prepend_path/1)
 
     on_exit(fn ->
       unload_generated_modules()
