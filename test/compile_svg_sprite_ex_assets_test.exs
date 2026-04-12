@@ -1,8 +1,8 @@
 defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   use ExUnit.Case
 
-  import ExUnit.CaptureIO, only: [capture_io: 1]
-  import Test.Support.CompileHelpers, only: [compile_fixture_modules!: 3, compiler_state_path: 1]
+  import Test.Support.CompileHelpers,
+    only: [capture_result: 1, compile_fixture_modules!: 3, compiler_state_path: 1]
 
   alias Mix.Tasks.Compile.SvgSpriteExAssets
   alias SvgSpriteEx.Config
@@ -351,7 +351,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
     Mix.Task.reenable("compile.app")
 
-    assert {:ok, []} =
+    assert {{:ok, []}, _output} =
              capture_result(fn ->
                Mix.Tasks.Compile.App.run(["--force", "--compile-path", compile_path])
              end)
@@ -1214,17 +1214,5 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     File.mkdir_p!(path)
     ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(path) end)
     path
-  end
-
-  defp capture_result(fun) do
-    parent = self()
-
-    capture_io(fn ->
-      send(parent, {:captured_result, fun.()})
-    end)
-
-    receive do
-      {:captured_result, result} -> result
-    end
   end
 end

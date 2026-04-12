@@ -53,7 +53,7 @@ defmodule Test.Support.CompileHelpers do
     |> Path.join("svg_sprite_ex")
   end
 
-  defp capture_result(fun) do
+  def capture_result(fun) do
     parent = self()
 
     output =
