@@ -9,6 +9,31 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert :noop = SvgSpriteExAssets.run([])
   end
 
+  test "compile_fixture_modules!/3 persists ref snapshots for modules that use refs" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    sprite_module = unique_module(:snapshot_sprite_fixture)
+    inline_module = unique_module(:snapshot_inline_fixture)
+
+    write_sprite_fixture_module!(source_dir, sprite_module, sheet: "alerts")
+    write_inline_fixture_module!(source_dir, inline_module, name: "regular/xmark")
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    assert %{
+             module: ^sprite_module,
+             sprite_refs: [{"alerts", "regular/xmark"}],
+             inline_refs: []
+           } = read_ref_snapshot!(ref_snapshot_path(manifest_path, sprite_module))
+
+    assert %{
+             module: ^inline_module,
+             sprite_refs: [],
+             inline_refs: ["regular/xmark"]
+           } = read_ref_snapshot!(ref_snapshot_path(manifest_path, inline_module))
+  end
+
   test "after_elixir_callback/1 compiles sprite artifacts when elixir reports ok" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
@@ -383,6 +408,53 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
              )
 
     refute File.exists?(sheet_path)
+  end
+
+  test "compile_sprite_artifacts!/1 bootstraps missing ref snapshots from exported refs" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    generated_source_path = generated_source_path(manifest_path)
+    inline_metadata_source_path = inline_metadata_source_path(manifest_path)
+    sprite_metadata_source_path = sprite_metadata_source_path(manifest_path)
+    inline_registry_module = unique_inline_registry_module()
+    inline_metadata_module = unique_inline_metadata_module()
+    sprite_metadata_module = unique_sprite_metadata_module()
+    sprite_module = unique_module(:bootstrapped_sprite_fixture)
+    inline_module = unique_module(:bootstrapped_inline_fixture)
+
+    write_sprite_fixture_module!(source_dir, sprite_module, sheet: "alerts")
+    write_inline_fixture_module!(source_dir, inline_module, name: "regular/xmark")
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    File.rm_rf!(compiler_state_path(manifest_path))
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_state_path: compiler_state_path(manifest_path),
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               generated_source_path: generated_source_path,
+               inline_registry_module: inline_registry_module,
+               inline_metadata_source_path: inline_metadata_source_path,
+               inline_metadata_module: inline_metadata_module,
+               sprite_metadata_source_path: sprite_metadata_source_path,
+               sprite_metadata_module: sprite_metadata_module,
+               build_path: sprite_build_path,
+               public_path: Config.public_path!(),
+               source_root: Config.source_root!()
+             )
+
+    assert File.exists?(ref_snapshot_path(manifest_path, sprite_module))
+    assert File.exists?(ref_snapshot_path(manifest_path, inline_module))
+    assert File.exists?(generated_source_path)
+    assert File.exists?(inline_metadata_source_path)
+    assert File.exists?(sprite_metadata_source_path)
+    assert File.exists?(Ref.sheet_build_path("alerts", sprite_build_path))
   end
 
   test "compile_sprite_artifacts!/1 only removes manifest-tracked sprite outputs" do
@@ -1031,6 +1103,10 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     |> Path.join("svg_sprite_ex")
   end
 
+  defp ref_snapshot_path(manifest_path, module) do
+    SvgSpriteEx.Ref.ref_snapshot_path(module, compiler_state_path(manifest_path))
+  end
+
   defp unique_module(suffix) do
     Module.concat([
       SvgSpriteEx,
@@ -1083,6 +1159,12 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
       {:error, :enoent} ->
         nil
     end
+  end
+
+  defp read_ref_snapshot!(path) do
+    path
+    |> File.read!()
+    |> :erlang.binary_to_term([:safe])
   end
 
   defp write_legacy_manifest!(path, artifact_paths) do

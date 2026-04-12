@@ -5,7 +5,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
   @recursive true
   @shortdoc "Builds application SVG sprite sheets"
-  @manifest_vsn 2
+  @manifest_vsn 3
   @compiler_fingerprint_vsn 1
 
   alias SvgSpriteEx.Config
@@ -114,11 +114,17 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     public_path = Keyword.get(opts, :public_path, Config.public_path!())
     source_root = Keyword.fetch!(opts, :source_root)
 
-    modules = project_modules(compile_path, elixir_manifest_path)
-
-    sprite_refs = collect_project_refs(modules, &sprite_refs/1)
-    inline_refs = collect_project_refs(modules, &inline_refs/1)
     compiler_manifest = read_compiler_manifest(compiler_manifest_path)
+    modules = project_modules(elixir_manifest_path)
+
+    {sprite_refs, inline_refs, ref_snapshot_result} =
+      collect_project_refs(
+        compile_path,
+        compiler_state_path,
+        modules,
+        not compiler_manifest.ref_snapshots_bootstrapped
+      )
+
     compiler_fingerprint = Keyword.get(opts, :compiler_fingerprint, compiler_fingerprint())
 
     input_digest =
@@ -139,7 +145,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
       )
 
     if manifest_current?(compiler_manifest, input_digest) do
-      :noop
+      ref_snapshot_result
     else
       inline_sources = load_inline_sources(inline_refs, source_root)
       sprite_metadata = build_sprite_metadata(sprite_refs, build_path, public_path, source_root)
@@ -196,10 +202,16 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
         |> cleanup_artifact_paths()
 
       manifest_write_result =
-        write_compiler_manifest(compiler_manifest_path, active_artifact_paths, input_digest)
+        write_compiler_manifest(
+          compiler_manifest_path,
+          active_artifact_paths,
+          input_digest,
+          true
+        )
 
       if Enum.all?(
            [
+             ref_snapshot_result,
              sprite_result,
              inline_result,
              sprite_metadata_result,
@@ -232,22 +244,64 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     ]
   end
 
-  defp project_modules(compile_path, elixir_manifest_path) do
-    Code.prepend_path(compile_path)
-
+  defp project_modules(elixir_manifest_path) do
     elixir_manifest_path
     |> Mix.Compilers.Elixir.read_manifest()
     |> elem(0)
     |> manifest_modules()
-    |> Enum.filter(&Code.ensure_loaded?/1)
     |> Enum.sort_by(&Atom.to_string/1)
   end
 
-  defp collect_project_refs(modules, extractor) do
-    modules
-    |> Enum.flat_map(extractor)
-    |> Enum.uniq()
-    |> Enum.sort()
+  defp collect_project_refs(
+         compile_path,
+         compiler_state_path,
+         modules,
+         bootstrap_missing_snapshots?
+       ) do
+    if bootstrap_missing_snapshots? do
+      Code.prepend_path(compile_path)
+    end
+
+    {snapshots, bootstrap_results} =
+      Enum.map_reduce(modules, [], fn module, results ->
+        {snapshot, result} =
+          load_or_bootstrap_ref_snapshot(
+            module,
+            compile_path,
+            compiler_state_path,
+            bootstrap_missing_snapshots?
+          )
+
+        {snapshot, [result | results]}
+      end)
+
+    active_snapshot_paths =
+      snapshots
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&Ref.ref_snapshot_path(&1.module, compiler_state_path))
+
+    stale_snapshot_result =
+      compiler_state_path
+      |> ref_snapshots_path()
+      |> list_regular_files()
+      |> Enum.reject(&(&1 in active_snapshot_paths))
+      |> cleanup_artifact_paths()
+
+    sprite_refs =
+      snapshots
+      |> Enum.reject(&is_nil/1)
+      |> Enum.flat_map(& &1.sprite_refs)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    inline_refs =
+      snapshots
+      |> Enum.reject(&is_nil/1)
+      |> Enum.flat_map(& &1.inline_refs)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    {sprite_refs, inline_refs, changed([stale_snapshot_result | bootstrap_results])}
   end
 
   defp build_sprite_metadata(sprite_refs, build_path, public_path, source_root) do
@@ -412,22 +466,6 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   defp manifest_modules(modules) when is_map(modules), do: Map.keys(modules)
   defp manifest_modules(modules) when is_list(modules), do: modules
   defp manifest_modules(_modules), do: []
-
-  defp sprite_refs(module) do
-    if function_exported?(module, :__sprite_refs__, 0) do
-      module.__sprite_refs__()
-    else
-      []
-    end
-  end
-
-  defp inline_refs(module) do
-    if function_exported?(module, :__inline_refs__, 0) do
-      module.__inline_refs__()
-    else
-      []
-    end
-  end
 
   defp write_sprite_sheets(sprite_builds) do
     sprite_builds
@@ -831,12 +869,26 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     case File.read(path) do
       {:ok, binary} ->
         case :erlang.binary_to_term(binary, [:safe]) do
-          %{vsn: @manifest_vsn, artifact_paths: artifact_paths, input_digest: input_digest}
-          when is_list(artifact_paths) and is_binary(input_digest) ->
-            %{artifact_paths: artifact_paths, input_digest: input_digest}
+          %{
+            vsn: @manifest_vsn,
+            artifact_paths: artifact_paths,
+            input_digest: input_digest,
+            ref_snapshots_bootstrapped: ref_snapshots_bootstrapped
+          }
+          when is_list(artifact_paths) and is_binary(input_digest) and
+                 is_boolean(ref_snapshots_bootstrapped) ->
+            %{
+              artifact_paths: artifact_paths,
+              input_digest: input_digest,
+              ref_snapshots_bootstrapped: ref_snapshots_bootstrapped
+            }
 
           %{artifact_paths: artifact_paths} when is_list(artifact_paths) ->
-            %{artifact_paths: artifact_paths, input_digest: nil}
+            %{
+              artifact_paths: artifact_paths,
+              input_digest: nil,
+              ref_snapshots_bootstrapped: false
+            }
 
           _other ->
             empty_manifest()
@@ -847,9 +899,14 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     end
   end
 
-  defp write_compiler_manifest(path, artifact_paths, input_digest) do
+  defp write_compiler_manifest(path, artifact_paths, input_digest, ref_snapshots_bootstrapped) do
     manifest =
-      %{vsn: @manifest_vsn, artifact_paths: artifact_paths, input_digest: input_digest}
+      %{
+        vsn: @manifest_vsn,
+        artifact_paths: artifact_paths,
+        input_digest: input_digest,
+        ref_snapshots_bootstrapped: ref_snapshots_bootstrapped
+      }
       |> :erlang.term_to_binary()
 
     write_if_changed(path, manifest)
@@ -865,7 +922,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
 
   defp manifest_current?(_manifest, _input_digest), do: false
 
-  defp empty_manifest, do: %{artifact_paths: [], input_digest: nil}
+  defp empty_manifest,
+    do: %{artifact_paths: [], input_digest: nil, ref_snapshots_bootstrapped: false}
 
   defp cleanup_artifact_paths([]), do: :noop
 
@@ -873,6 +931,80 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
     paths
     |> Enum.map(&rm_if_exists/1)
     |> changed()
+  end
+
+  defp load_or_bootstrap_ref_snapshot(
+         module,
+         _compile_path,
+         compiler_state_path,
+         bootstrap_missing_snapshots?
+       ) do
+    snapshot_path = Ref.ref_snapshot_path(module, compiler_state_path)
+
+    case read_ref_snapshot(snapshot_path) do
+      {:ok, snapshot} ->
+        {snapshot, :noop}
+
+      :missing ->
+        if bootstrap_missing_snapshots? do
+          bootstrap_ref_snapshot(module, snapshot_path)
+        else
+          {nil, :noop}
+        end
+    end
+  end
+
+  defp bootstrap_ref_snapshot(module, snapshot_path) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :__sprite_refs__, 0) and
+         function_exported?(module, :__inline_refs__, 0) do
+      snapshot = %{
+        module: module,
+        sprite_refs: module.__sprite_refs__() |> Enum.uniq() |> Enum.sort(),
+        inline_refs: module.__inline_refs__() |> Enum.uniq() |> Enum.sort()
+      }
+
+      {snapshot, write_ref_snapshot(snapshot_path, snapshot)}
+    else
+      {nil, :noop}
+    end
+  end
+
+  defp read_ref_snapshot(path) do
+    case File.read(path) do
+      {:ok, binary} ->
+        case :erlang.binary_to_term(binary, [:safe]) do
+          %{module: module, sprite_refs: sprite_refs, inline_refs: inline_refs} = snapshot
+          when is_atom(module) and is_list(sprite_refs) and is_list(inline_refs) ->
+            {:ok, snapshot}
+
+          _other ->
+            raise Mix.Error, message: "invalid svg_sprite_ex ref snapshot: #{path}"
+        end
+
+      {:error, :enoent} ->
+        :missing
+    end
+  end
+
+  defp write_ref_snapshot(path, snapshot) do
+    path
+    |> Path.dirname()
+    |> File.mkdir_p!()
+
+    write_if_changed(path, :erlang.term_to_binary(snapshot))
+  end
+
+  defp list_regular_files(path) do
+    case File.ls(path) do
+      {:ok, entries} ->
+        entries
+        |> Enum.map(&Path.join(path, &1))
+        |> Enum.filter(&File.regular?/1)
+        |> Enum.sort()
+
+      {:error, :enoent} ->
+        []
+    end
   end
 
   defp write_if_changed(path, contents) do
