@@ -1,6 +1,7 @@
 defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   use ExUnit.Case
 
+  import ExUnit.CaptureIO, only: [capture_io: 1]
   import Test.Support.CompileHelpers, only: [compile_fixture_modules!: 3, compiler_state_path: 1]
 
   alias Mix.Tasks.Compile.SvgSpriteExAssets
@@ -349,7 +350,11 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert File.exists?(runtime_data_path)
 
     Mix.Task.reenable("compile.app")
-    assert {:ok, []} = Mix.Tasks.Compile.App.run(["--force", "--compile-path", compile_path])
+
+    assert {:ok, []} =
+             capture_result(fn ->
+               Mix.Tasks.Compile.App.run(["--force", "--compile-path", compile_path])
+             end)
   end
 
   test "compile_sprite_artifacts!/1 removes stale sprite outputs after modules disappear" do
@@ -1209,5 +1214,17 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     File.mkdir_p!(path)
     ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(path) end)
     path
+  end
+
+  defp capture_result(fun) do
+    parent = self()
+
+    capture_io(fn ->
+      send(parent, {:captured_result, fun.()})
+    end)
+
+    receive do
+      {:captured_result, result} -> result
+    end
   end
 end

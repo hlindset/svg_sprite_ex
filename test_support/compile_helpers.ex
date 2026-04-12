@@ -1,5 +1,6 @@
 defmodule Test.Support.CompileHelpers do
   import ExUnit.Assertions, only: [flunk: 1]
+  import ExUnit.CaptureIO, only: [capture_io: 1]
 
   def compile_fixture_modules!(manifest_path, source_dir, compile_path) do
     override = compiler_state_path(manifest_path)
@@ -7,18 +8,23 @@ defmodule Test.Support.CompileHelpers do
     Application.put_env(:svg_sprite_ex, :compiler_state_path_override, override)
 
     try do
-      # Note: This intentionally uses Mix's internal compile/7 API for test
-      # infrastructure. If the signature changes on Elixir upgrade, update this
-      # helper.
-      case Mix.Compilers.Elixir.compile(
-             manifest_path,
-             [source_dir],
-             compile_path,
-             {:svg_sprite_ex_test, source_dir},
-             [],
-             [],
-             []
-           ) do
+      {result, output} =
+        capture_result(fn ->
+          # Note: This intentionally uses Mix's internal compile/7 API for test
+          # infrastructure. If the signature changes on Elixir upgrade, update this
+          # helper.
+          Mix.Compilers.Elixir.compile(
+            manifest_path,
+            [source_dir],
+            compile_path,
+            {:svg_sprite_ex_test, source_dir},
+            [],
+            [],
+            []
+          )
+        end)
+
+      case result do
         {:ok, _diagnostics} ->
           :ok
 
@@ -26,7 +32,11 @@ defmodule Test.Support.CompileHelpers do
           :ok
 
         {:error, diagnostics} ->
-          flunk("fixture modules failed to compile: #{inspect(diagnostics)}")
+          flunk("""
+          fixture modules failed to compile: #{inspect(diagnostics)}
+
+          #{output}
+          """)
       end
     after
       if is_nil(previous_override) do
@@ -41,5 +51,21 @@ defmodule Test.Support.CompileHelpers do
     manifest_path
     |> Path.dirname()
     |> Path.join("svg_sprite_ex")
+  end
+
+  defp capture_result(fun) do
+    parent = self()
+
+    output =
+      capture_io(fn ->
+        send(parent, {:captured_result, fun.()})
+      end)
+
+    result =
+      receive do
+        {:captured_result, result} -> result
+      end
+
+    {result, output}
   end
 end
