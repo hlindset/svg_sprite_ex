@@ -21,7 +21,7 @@ defmodule SvgSpriteEx.Compiler.FileOps do
         |> Enum.filter(&File.regular?/1)
         |> Enum.sort()
 
-      {:error, :enoent} ->
+      {:error, _reason} ->
         []
     end
   end
