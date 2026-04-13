@@ -31,7 +31,6 @@ defmodule SvgSpriteEx.SpriteSheet do
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.map(&Source.read!(&1, source_root))
-    |> ensure_unique_sprite_ids!()
     |> Enum.map(&build_symbol!/1)
     |> wrap_sprite_sheet()
   end
@@ -55,13 +54,9 @@ defmodule SvgSpriteEx.SpriteSheet do
          attributes: attributes,
          content_nodes: content_nodes
        }) do
-    view_box = Map.get(attributes, "viewBox")
+    view_box = resolve_view_box!(attributes, normalized_name)
     sprite_id = Source.sprite_id_from_normalized(normalized_name)
     rendered_symbol_attrs = render_symbol_attrs(attributes)
-
-    if is_nil(view_box) or view_box == "" do
-      raise ArgumentError, "svg asset #{inspect(normalized_name)} is missing a viewBox"
-    end
 
     escaped_view_box = escape_xml_attr(view_box)
     rewritten_content = rewrite_content_nodes!(normalized_name, content_nodes, sprite_id)
@@ -83,25 +78,6 @@ defmodule SvgSpriteEx.SpriteSheet do
       Enum.join(symbols, "\n"),
       "\n</svg>\n"
     ])
-  end
-
-  defp ensure_unique_sprite_ids!(sources) do
-    collisions =
-      sources
-      |> Enum.group_by(&Source.sprite_id_from_normalized(&1.name))
-      |> Enum.filter(fn {_sprite_id, sprite_paths} -> length(sprite_paths) > 1 end)
-
-    if collisions == [] do
-      sources
-    else
-      details =
-        Enum.map_join(collisions, "; ", fn {sprite_id, sprite_sources} ->
-          file_paths = Enum.map_join(sprite_sources, ", ", & &1.file_path)
-          "#{sprite_id}: #{file_paths}"
-        end)
-
-      raise ArgumentError, "sprite ID collisions detected: #{details}"
-    end
   end
 
   defp rewrite_content_nodes!(normalized_name, content_nodes, sprite_id) do
@@ -218,7 +194,7 @@ defmodule SvgSpriteEx.SpriteSheet do
           )
 
       true ->
-        raise_unsupported_reference!(normalized_name, attr_name, value)
+        value
     end
   end
 
@@ -228,8 +204,6 @@ defmodule SvgSpriteEx.SpriteSheet do
 
   defp rewrite_url_references!(value, attr_name, normalized_name, id_map) do
     if String.contains?(value, "url(") do
-      ensure_only_local_url_references!(value, attr_name, normalized_name)
-
       Regex.replace(@local_url_reference_pattern, value, fn _, quote, target ->
         rewritten_target = rewrite_reference_target!(target, attr_name, normalized_name, id_map)
         "url(#{quote}##{rewritten_target}#{quote})"
@@ -251,19 +225,47 @@ defmodule SvgSpriteEx.SpriteSheet do
     end
   end
 
-  defp raise_unsupported_reference!(normalized_name, attr_name, value) do
-    raise ArgumentError,
-          "svg asset #{inspect(normalized_name)} contains an unsupported reference in #{attr_name}: #{inspect(value)}"
-  end
+  defp resolve_view_box!(attributes, normalized_name) do
+    case Map.get(attributes, "viewBox") |> normalize_view_box() do
+      nil ->
+        derive_view_box_from_dimensions!(attributes, normalized_name)
 
-  defp ensure_only_local_url_references!(value, attr_name, normalized_name) do
-    unsupported_url_references =
-      Regex.replace(@local_url_reference_pattern, value, "")
-
-    if String.contains?(unsupported_url_references, "url(") do
-      raise_unsupported_reference!(normalized_name, attr_name, value)
+      view_box ->
+        view_box
     end
   end
+
+  defp normalize_view_box(nil), do: nil
+
+  defp normalize_view_box(view_box) do
+    case String.trim(view_box) do
+      "" -> nil
+      normalized_view_box -> normalized_view_box
+    end
+  end
+
+  defp derive_view_box_from_dimensions!(attributes, normalized_name) do
+    with {:ok, width} <- parse_view_box_dimension(Map.get(attributes, "width")),
+         {:ok, height} <- parse_view_box_dimension(Map.get(attributes, "height")) do
+      "0 0 #{width} #{height}"
+    else
+      _ ->
+        raise ArgumentError,
+              "svg asset #{inspect(normalized_name)} is missing a viewBox and usable width/height"
+    end
+  end
+
+  defp parse_view_box_dimension(nil), do: :error
+
+  defp parse_view_box_dimension(value) when is_binary(value) do
+    case Regex.run(~r/^\s*(\d+(?:\.\d+)?)\s*(px)?\s*$/i, value) do
+      [_, dimension, _unit] -> {:ok, dimension}
+      [_, dimension] -> {:ok, dimension}
+      _ -> :error
+    end
+  end
+
+  defp parse_view_box_dimension(_value), do: :error
 
   defp render_content_nodes(nodes) do
     nodes

@@ -88,7 +88,28 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     refute sprite_sheet =~ ~r/<symbol[^>]* xmlns=/
   end
 
-  test "build raises when a source svg is missing a viewBox" do
+  test "build derives a viewBox from width and height when missing" do
+    svg_source_root = unique_tmp_dir!("derived-viewbox")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/sized.svg"),
+      """
+      <svg width="24" height="16px">
+        <path d="M0 0h24v16H0z" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/sized"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/sized", svg_source_root)
+
+    assert sprite_sheet =~ ~s(<symbol id="#{sprite_id}" viewBox="0 0 24 16")
+    refute sprite_sheet =~ ~s( width="24")
+    refute sprite_sheet =~ ~s( height="16px")
+  end
+
+  test "build raises when a source svg is missing a viewBox and usable width/height" do
     svg_source_root = unique_tmp_dir!("missing-viewbox")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))
 
@@ -101,7 +122,7 @@ defmodule SvgSpriteEx.SpriteSheetTest do
       """
     )
 
-    assert_raise ArgumentError, ~r/is missing a viewBox/, fn ->
+    assert_raise ArgumentError, ~r/is missing a viewBox and usable width\/height/, fn ->
       SpriteSheet.build(["icons/no_viewbox"], source_root: svg_source_root)
     end
   end
@@ -219,7 +240,7 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert sprite_sheet =~ ~s(xlink:href="##{sprite_id}-shape")
   end
 
-  test "build raises for unsupported reference forms" do
+  test "build passes through non-local reference forms unchanged" do
     svg_source_root = unique_tmp_dir!("unsupported-refs")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))
 
@@ -227,13 +248,38 @@ defmodule SvgSpriteEx.SpriteSheetTest do
       Path.join(svg_source_root, "icons/external.svg"),
       """
       <svg viewBox="0 0 24 24">
+        <defs>
+          <g id="shape">
+            <path d="M0 0h24v24H0z" />
+          </g>
+        </defs>
         <path fill="url(http://example.com/pattern.svg#paint)" d="M0 0h24v24H0z" />
+        <use href="other.svg#shape" />
       </svg>
       """
     )
 
-    assert_raise ArgumentError, ~r/unsupported reference/, fn ->
-      SpriteSheet.build(["icons/external"], source_root: svg_source_root)
+    sprite_sheet = SpriteSheet.build(["icons/external"], source_root: svg_source_root)
+
+    assert sprite_sheet =~ ~s|fill="url(http://example.com/pattern.svg#paint)"|
+    assert sprite_sheet =~ ~s(href="other.svg#shape")
+  end
+
+  test "build still raises for missing local reference targets" do
+    svg_source_root = unique_tmp_dir!("missing-local-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/broken.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path fill="url(#paint)" d="M0 0h24v24H0z" />
+      </svg>
+      """
+    )
+
+    assert_raise ArgumentError, ~r/references unknown local id/, fn ->
+      SpriteSheet.build(["icons/broken"], source_root: svg_source_root)
     end
   end
 
