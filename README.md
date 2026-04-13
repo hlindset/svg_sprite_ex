@@ -51,6 +51,18 @@ config :my_app, MyAppWeb.Endpoint,
 
 Adjust the list to match the compilers used in your project.
 
+## Upgrade notes
+
+- `%SvgSpriteEx.InlineRef{}` is now a one-field struct with only `:name`.
+  Code that manually constructs or pattern matches on the old `:registry` field
+  must be updated.
+- Upgrading from older compiler snapshot/runtime data formats requires a clean
+  rebuild. Run `mix clean && mix compile`, or delete the app's
+  `.mix/svg_sprite_ex` compiler state directory before recompiling.
+- When multiple apps share the same code path, stale `runtime_data.etf` files
+  from sibling apps are ignored until those apps rebuild with the current
+  schema.
+
 ## Configuration
 
 ```elixir
@@ -89,6 +101,10 @@ When you run `mix compile`, the compiler:
 - hashes the referenced svg files and compiler inputs to detect asset changes
 - writes one svg sprite sheet per sheet name into `build_path`
 - writes a runtime data artifact that powers inline svg lookup and metadata APIs
+
+If the compiler encounters a missing or outdated ref snapshot for a module that
+uses `SvgSpriteEx.Ref`, it raises and asks for a clean rebuild instead of trying
+to recover from older snapshot formats.
 
 Your application must serve the generated files from the same public path you
 configured. For example: Write sprite sheets into `priv/static/svgs`, and
@@ -143,6 +159,9 @@ Inline mode skips the sprite sheet and renders the svg inline in the document.
 This lets you serve the raw svg markup in the page instead of a `<use>`
 reference, without doing runtime file reads.
 
+If you construct inline refs manually, use `%SvgSpriteEx.InlineRef{name: "..."}`
+with no `:registry` field.
+
 ## Runtime metadata
 
 `SvgSpriteEx` also exposes runtime metadata for compiled outputs:
@@ -163,6 +182,10 @@ SvgSpriteEx.inline_svgs()
 SvgSpriteEx.inline_svg("regular/xmark")
 #=> %SvgSpriteEx.InlineSvgMeta{...}
 ```
+
+In umbrella or multi-app code paths, runtime metadata APIs skip stale
+`runtime_data.etf` files from sibling apps until those apps rebuild with the
+current schema.
 
 ## Patterns
 
