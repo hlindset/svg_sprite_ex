@@ -6,7 +6,6 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   @recursive true
   @shortdoc "Builds application SVG sprite sheets"
   @manifest_vsn 3
-  @compiler_fingerprint_vsn 1
 
   alias SvgSpriteEx.Config
   alias SvgSpriteEx.RuntimeData
@@ -535,29 +534,22 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssets do
   end
 
   defp compiler_fingerprint do
-    digest_input = %{
-      vsn: @compiler_fingerprint_vsn,
-      module_md5s:
-        Enum.map(
-          [
-            __MODULE__,
-            SvgSpriteEx.RuntimeData,
-            SvgSpriteEx.InlineAsset,
-            SvgSpriteEx.InlineSvgMeta,
-            SvgSpriteEx.Ref,
-            SvgSpriteEx.Source,
-            SvgSpriteEx.SpriteMeta,
-            SvgSpriteEx.SpriteSheet,
-            SvgSpriteEx.SpriteSheetMeta
-          ],
-          fn module ->
-            Code.ensure_loaded!(module)
-            {module, module.module_info(:md5)}
-          end
-        )
-    }
-
-    term_digest(digest_input)
+    [
+      __MODULE__,
+      SvgSpriteEx.RuntimeData,
+      SvgSpriteEx.InlineAsset,
+      SvgSpriteEx.InlineSvgMeta,
+      SvgSpriteEx.Ref,
+      SvgSpriteEx.Source,
+      SvgSpriteEx.SpriteMeta,
+      SvgSpriteEx.SpriteSheet,
+      SvgSpriteEx.SpriteSheetMeta
+    ]
+    |> Enum.map(fn module ->
+      Code.ensure_loaded!(module)
+      {module, module.module_info(:md5)}
+    end)
+    |> term_digest()
   end
 
   defp elixir_manifest_path do
