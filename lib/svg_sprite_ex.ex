@@ -16,13 +16,10 @@ defmodule SvgSpriteEx do
   alias SvgSpriteEx.InlineRef
   alias SvgSpriteEx.InlineSvgMeta
   alias SvgSpriteEx.Ref
+  alias SvgSpriteEx.RuntimeData
   alias SvgSpriteEx.Source
   alias SvgSpriteEx.SpriteMeta
   alias SvgSpriteEx.SpriteRef
-
-  @inline_registry_module SvgSpriteEx.Generated.InlineIcons
-  @sprite_sheet_registry_module SvgSpriteEx.Generated.SpriteSheets
-  @inline_svg_registry_module SvgSpriteEx.Generated.InlineSvgs
 
   @doc ~S'''
   Imports the SvgSpriteEx component and compile-time ref helpers into the caller.
@@ -54,7 +51,7 @@ defmodule SvgSpriteEx do
   """
   @spec sprite_sheets() :: [SvgSpriteEx.SpriteSheetMeta.t()]
   def sprite_sheets do
-    with_registry(@sprite_sheet_registry_module, :sprite_sheets, [], [])
+    with_runtime_data(:sprite_sheets, [], [])
   end
 
   @doc """
@@ -64,12 +61,7 @@ defmodule SvgSpriteEx do
   def sprite_sheet(sheet) do
     normalized_sheet = Ref.normalize_sheet!(sheet, Config.default_sheet!())
 
-    with_registry(
-      @sprite_sheet_registry_module,
-      :sprite_sheet,
-      [normalized_sheet],
-      nil
-    )
+    with_runtime_data(:sprite_sheet, [normalized_sheet], nil)
   end
 
   @doc """
@@ -79,12 +71,7 @@ defmodule SvgSpriteEx do
   def sprites_in_sheet(sheet) do
     normalized_sheet = Ref.normalize_sheet!(sheet, Config.default_sheet!())
 
-    with_registry(
-      @sprite_sheet_registry_module,
-      :sprites_in_sheet,
-      [normalized_sheet],
-      []
-    )
+    with_runtime_data(:sprites_in_sheet, [normalized_sheet], [])
   end
 
   @doc """
@@ -92,7 +79,7 @@ defmodule SvgSpriteEx do
   """
   @spec inline_svgs() :: [SvgSpriteEx.InlineSvgMeta.t()]
   def inline_svgs do
-    with_registry(@inline_svg_registry_module, :inline_svgs, [], [])
+    with_runtime_data(:inline_svgs, [], [])
   end
 
   @doc """
@@ -102,12 +89,7 @@ defmodule SvgSpriteEx do
   def inline_svg(name) do
     normalized_name = Source.normalize_name!(name, Config.source_root!())
 
-    with_registry(
-      @inline_svg_registry_module,
-      :inline_svg,
-      [normalized_name],
-      nil
-    )
+    with_runtime_data(:inline_svg, [normalized_name], nil)
   end
 
   @doc """
@@ -118,22 +100,21 @@ defmodule SvgSpriteEx do
     %SpriteRef{
       name: sprite_meta.name,
       sheet: sprite_meta.sheet,
-      sprite_id: sprite_meta.sprite_id,
-      href: sprite_meta.href
+      sheet_public_path: sprite_meta.sheet_public_path,
+      sprite_id: sprite_meta.sprite_id
     }
   end
 
   def to_ref(%InlineSvgMeta{} = inline_svg_meta) do
     %InlineRef{
-      name: inline_svg_meta.name,
-      registry: @inline_registry_module
+      name: inline_svg_meta.name
     }
   end
 
-  defp with_registry(module, function_name, args, default) do
-    case Code.ensure_loaded(module) do
-      {:module, ^module} ->
-        apply(module, function_name, args)
+  defp with_runtime_data(function_name, args, default) do
+    case Code.ensure_loaded(RuntimeData) do
+      {:module, RuntimeData} ->
+        apply(RuntimeData, function_name, args)
 
       {:error, _reason} ->
         default

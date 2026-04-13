@@ -1,6 +1,8 @@
 defmodule SvgSpriteEx.MetadataTest do
   use ExUnit.Case
 
+  import Test.Support.CompileHelpers, only: [compile_fixture_modules!: 3, compiler_state_path: 1]
+
   alias Mix.Tasks.Compile.SvgSpriteExAssets
   alias SvgSpriteEx.Config
   alias SvgSpriteEx.InlineRef
@@ -36,14 +38,14 @@ defmodule SvgSpriteEx.MetadataTest do
              %SpriteMeta{
                name: "regular/xmark",
                sheet: "ui_actions",
+               sheet_public_path: sheet_public_path,
                source_path: source_path,
-               sprite_id: sprite_id,
-               href: href
+               sprite_id: _sprite_id
              }
            ] = SvgSpriteEx.sprites_in_sheet(:" UI Actions ")
 
     assert source_path == Path.join(Config.source_root!(), "regular/xmark.svg")
-    assert href == "/assets/sprites/ui_actions.svg##{sprite_id}"
+    assert sheet_public_path == "/assets/sprites/ui_actions.svg"
     assert SvgSpriteEx.sprite_sheet("missing") == nil
     assert SvgSpriteEx.sprites_in_sheet("missing") == []
   end
@@ -90,70 +92,309 @@ defmodule SvgSpriteEx.MetadataTest do
     assert %SpriteRef{} = sprite_ref = SvgSpriteEx.to_ref(sprite_meta)
     assert sprite_ref.name == sprite_meta.name
     assert sprite_ref.sheet == sprite_meta.sheet
+    assert sprite_ref.sheet_public_path == sprite_meta.sheet_public_path
     assert sprite_ref.sprite_id == sprite_meta.sprite_id
-    assert sprite_ref.href == sprite_meta.href
 
     assert %InlineRef{} = inline_ref = SvgSpriteEx.to_ref(inline_svg_meta)
     assert inline_ref.name == inline_svg_meta.name
-    assert inline_ref.registry == SvgSpriteEx.Generated.InlineIcons
+  end
+
+  test "runtime metadata merges artifacts from multiple app code paths" do
+    {source_dir_one, manifest_path_one, compile_path_one, sprite_build_path_one} =
+      runtime_fixture_paths!()
+
+    {source_dir_two, manifest_path_two, compile_path_two, sprite_build_path_two} =
+      runtime_fixture_paths!()
+
+    write_sprite_fixture_module!(source_dir_one, unique_module(:umbrella_alerts_fixture),
+      sheet: "alerts"
+    )
+
+    write_sprite_fixture_module!(source_dir_two, unique_module(:umbrella_dashboard_fixture),
+      sheet: "dashboard"
+    )
+
+    write_inline_fixture_module!(source_dir_two, unique_module(:umbrella_inline_fixture),
+      name: "regular/xmark"
+    )
+
+    setup_runtime_loader!([compile_path_one, compile_path_two])
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path_one,
+               source_dir_one,
+               compile_path_one,
+               sprite_build_path_one
+             )
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path_two,
+               source_dir_two,
+               compile_path_two,
+               sprite_build_path_two
+             )
+
+    clear_runtime_data_cache()
+
+    assert [
+             %SpriteSheetMeta{name: "alerts", filename: "alerts.svg"},
+             %SpriteSheetMeta{name: "dashboard", filename: "dashboard.svg"}
+           ] = SvgSpriteEx.sprite_sheets()
+
+    assert [%SpriteMeta{sheet: "alerts", name: "regular/xmark"}] =
+             SvgSpriteEx.sprites_in_sheet("alerts")
+
+    assert [%SpriteMeta{sheet: "dashboard", name: "regular/xmark"}] =
+             SvgSpriteEx.sprites_in_sheet("dashboard")
+
+    assert [%InlineSvgMeta{name: "regular/xmark"}] = SvgSpriteEx.inline_svgs()
+    assert %InlineSvgMeta{name: "regular/xmark"} = SvgSpriteEx.inline_svg("regular/xmark")
+    assert File.exists?(runtime_data_path(compile_path_one))
+    assert File.exists?(runtime_data_path(compile_path_two))
+  end
+
+  test "runtime metadata raises for stale runtime data artifacts from sibling apps" do
+    {source_dir, manifest_path, compile_path, sprite_build_path} = runtime_fixture_paths!()
+
+    {_stale_source_dir, _stale_manifest_path, stale_compile_path, _stale_sprite_build_path} =
+      runtime_fixture_paths!()
+
+    stale_runtime_data_path = runtime_data_path(stale_compile_path)
+
+    write_inline_fixture_module!(source_dir, unique_module(:current_runtime_fixture),
+      name: "regular/xmark"
+    )
+
+    write_runtime_data_file!(stale_compile_path, %{
+      vsn: 2,
+      inline_assets: %{
+        "regular/xmark" => %SvgSpriteEx.InlineAsset{attributes: %{}, inner_content: "<path />"}
+      },
+      inline_svgs: [%InlineSvgMeta{name: "regular/xmark", source_path: "/tmp/stale.svg"}],
+      inline_svg_map: %{
+        "regular/xmark" => %InlineSvgMeta{name: "regular/xmark", source_path: "/tmp/stale.svg"}
+      },
+      sprite_sheets: [],
+      sprite_sheet_map: %{},
+      sprites_in_sheet: %{}
+    })
+
+    setup_runtime_loader!([stale_compile_path, compile_path])
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path,
+               source_dir,
+               compile_path,
+               sprite_build_path
+             )
+
+    assert_raise ArgumentError,
+                 ~r/stale svg_sprite_ex runtime data at #{Regex.escape(stale_runtime_data_path)}: found vsn 2, expected #{SvgSpriteEx.RuntimeData.runtime_data_vsn()}/,
+                 fn ->
+                   SvgSpriteEx.inline_svgs()
+                 end
+  end
+
+  test "runtime metadata reports the offending path when runtime data cannot be decoded" do
+    {_source_dir, _manifest_path, compile_path, _sprite_build_path} = runtime_fixture_paths!()
+
+    runtime_data_path = runtime_data_path(compile_path)
+    File.mkdir_p!(Path.dirname(runtime_data_path))
+    File.write!(runtime_data_path, "not an etf payload")
+
+    setup_runtime_loader!([compile_path])
+
+    assert_raise ArgumentError,
+                 ~r/could not decode svg_sprite_ex runtime data at #{Regex.escape(runtime_data_path)}/,
+                 fn ->
+                   SvgSpriteEx.inline_svgs()
+                 end
+  end
+
+  test "runtime metadata rejects duplicate sheet names across app code paths" do
+    {source_dir_one, manifest_path_one, compile_path_one, sprite_build_path_one} =
+      runtime_fixture_paths!()
+
+    {source_dir_two, manifest_path_two, compile_path_two, sprite_build_path_two} =
+      runtime_fixture_paths!()
+
+    write_sprite_fixture_module!(source_dir_one, unique_module(:duplicate_sheet_one_fixture),
+      sheet: "sprites"
+    )
+
+    write_sprite_fixture_module!(source_dir_two, unique_module(:duplicate_sheet_two_fixture),
+      sheet: "sprites"
+    )
+
+    setup_runtime_loader!([compile_path_one, compile_path_two])
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path_one,
+               source_dir_one,
+               compile_path_one,
+               sprite_build_path_one
+             )
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path_two,
+               source_dir_two,
+               compile_path_two,
+               sprite_build_path_two
+             )
+
+    clear_runtime_data_cache()
+
+    assert_raise ArgumentError,
+                 ~r/sheet names must be unique across apps on the code path/,
+                 fn ->
+                   SvgSpriteEx.sprite_sheets()
+                 end
+  end
+
+  test "runtime metadata raises for malformed current-version artifacts" do
+    {_source_dir, _manifest_path, compile_path, _sprite_build_path} = runtime_fixture_paths!()
+
+    write_runtime_data_file!(compile_path, %{
+      vsn: SvgSpriteEx.RuntimeData.runtime_data_vsn(),
+      inline_assets: :bad,
+      inline_svg_map: %{},
+      sprite_sheet_map: %{},
+      sprites_in_sheet: %{}
+    })
+
+    setup_runtime_loader!([compile_path])
+
+    assert_raise ArgumentError, ~r/invalid svg_sprite_ex runtime data/, fn ->
+      SvgSpriteEx.inline_svgs()
+    end
+  end
+
+  test "runtime metadata rejects duplicate inline asset names across app code paths" do
+    {source_dir_one, manifest_path_one, compile_path_one, sprite_build_path_one} =
+      runtime_fixture_paths!()
+
+    {source_dir_two, manifest_path_two, compile_path_two, sprite_build_path_two} =
+      runtime_fixture_paths!()
+
+    write_inline_fixture_module!(source_dir_one, unique_module(:duplicate_inline_one_fixture),
+      name: "regular/xmark"
+    )
+
+    write_inline_fixture_module!(source_dir_two, unique_module(:duplicate_inline_two_fixture),
+      name: "regular/xmark"
+    )
+
+    setup_runtime_loader!([compile_path_one, compile_path_two])
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path_one,
+               source_dir_one,
+               compile_path_one,
+               sprite_build_path_one
+             )
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path_two,
+               source_dir_two,
+               compile_path_two,
+               sprite_build_path_two
+             )
+
+    clear_runtime_data_cache()
+
+    assert_raise ArgumentError,
+                 ~r/inline asset names must be unique across apps on the code path/,
+                 fn ->
+                   SvgSpriteEx.inline_svgs()
+                 end
+  end
+
+  test "runtime metadata cache reloads after compiler updates artifacts" do
+    {source_dir, manifest_path, compile_path, sprite_build_path} = runtime_fixture_paths!()
+
+    write_sprite_fixture_module!(source_dir, unique_module(:runtime_cache_alerts_fixture),
+      sheet: "alerts"
+    )
+
+    setup_runtime_loader!([compile_path])
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path,
+               source_dir,
+               compile_path,
+               sprite_build_path
+             )
+
+    assert [%SpriteSheetMeta{name: "alerts"}] = SvgSpriteEx.sprite_sheets()
+
+    write_sprite_fixture_module!(source_dir, unique_module(:runtime_cache_dashboard_fixture),
+      sheet: "dashboard"
+    )
+
+    assert :ok =
+             compile_runtime_metadata_app!(
+               manifest_path,
+               source_dir,
+               compile_path,
+               sprite_build_path
+             )
+
+    assert [
+             %SpriteSheetMeta{name: "alerts"},
+             %SpriteSheetMeta{name: "dashboard"}
+           ] = SvgSpriteEx.sprite_sheets()
   end
 
   defp compile_runtime_metadata!(manifest_path, source_dir, compile_path, sprite_build_path) do
-    unload_generated_modules()
-    Code.prepend_path(compile_path)
+    setup_runtime_loader!([compile_path])
+    compile_runtime_metadata_app!(manifest_path, source_dir, compile_path, sprite_build_path)
+  end
+
+  defp clear_runtime_data_cache do
+    SvgSpriteEx.RuntimeData.delete()
+  end
+
+  defp setup_runtime_loader!(compile_paths) do
+    clear_runtime_data_cache()
+
+    Enum.each(Enum.reverse(compile_paths), &Code.prepend_path/1)
 
     on_exit(fn ->
-      unload_generated_modules()
-      Code.delete_path(compile_path)
+      clear_runtime_data_cache()
+
+      Enum.each(compile_paths, &Code.delete_path/1)
+
+      compile_paths
+      |> Enum.map(&runtime_data_path/1)
+      |> Enum.map(&Path.dirname(Path.dirname(&1)))
+      |> Enum.uniq()
+      |> Enum.each(&File.rm_rf!/1)
     end)
+  end
+
+  defp compile_runtime_metadata_app!(manifest_path, source_dir, compile_path, sprite_build_path) do
+    runtime_data_path = runtime_data_path(compile_path)
 
     assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
 
     assert :ok =
              SvgSpriteExAssets.compile_sprite_artifacts!(
                compile_path: compile_path,
+               compiler_state_path: compiler_state_path(manifest_path),
                elixir_manifest_path: manifest_path,
+               runtime_data_path: runtime_data_path,
                build_path: sprite_build_path,
                public_path: Config.public_path!(),
                source_root: Config.source_root!()
              )
-  end
-
-  defp unload_generated_modules do
-    for module <- [
-          SvgSpriteEx.Generated.InlineIcons,
-          SvgSpriteEx.Generated.InlineSvgs,
-          SvgSpriteEx.Generated.SpriteSheets
-        ] do
-      :code.delete(module)
-      :code.purge(module)
-    end
-
-    :ok
-  end
-
-  defp compile_fixture_modules!(manifest_path, source_dir, compile_path) do
-    # Note: This intentionally uses Mix's internal compile/7 API for test
-    # infrastructure. If the signature changes on Elixir upgrade, update this
-    # helper in test/svg_sprite_ex_metadata_test.exs.
-    case Mix.Compilers.Elixir.compile(
-           manifest_path,
-           [source_dir],
-           compile_path,
-           {:svg_sprite_ex_test, source_dir},
-           [],
-           [],
-           []
-         ) do
-      {:ok, _diagnostics} ->
-        :ok
-
-      {:noop, _diagnostics} ->
-        :ok
-
-      {:error, diagnostics} ->
-        flunk("fixture modules failed to compile: #{inspect(diagnostics)}")
-    end
   end
 
   defp write_sprite_fixture_module!(source_dir, module, opts) do
@@ -194,9 +435,11 @@ defmodule SvgSpriteEx.MetadataTest do
 
   defp runtime_fixture_paths! do
     source_dir = unique_tmp_dir!("runtime-source-dir")
-    compile_path = unique_tmp_dir!("runtime-compile-path")
+    app_path = unique_tmp_dir!("runtime-app-path")
+    compile_path = Path.join(app_path, "ebin")
     sprite_build_path = unique_tmp_dir!("runtime-sprite-build-path")
     manifest_path = elixir_manifest_path!(source_dir)
+    File.mkdir_p!(compile_path)
     {source_dir, manifest_path, compile_path, sprite_build_path}
   end
 
@@ -208,6 +451,19 @@ defmodule SvgSpriteEx.MetadataTest do
     manifest_dir = Path.join(source_dir, ".mix")
     File.mkdir_p!(manifest_dir)
     Path.join(manifest_dir, "compile.elixir")
+  end
+
+  defp runtime_data_path(compile_path) do
+    compile_path
+    |> Path.dirname()
+    |> Path.join("priv/svg_sprite_ex/runtime_data.etf")
+  end
+
+  defp write_runtime_data_file!(compile_path, runtime_data) do
+    path = runtime_data_path(compile_path)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, :erlang.term_to_binary(runtime_data))
+    path
   end
 
   defp unique_module(suffix) do

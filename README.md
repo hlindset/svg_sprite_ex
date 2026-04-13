@@ -22,8 +22,8 @@ end
 ```
 
 Then register the sprite compiler ahead of the default Mix compilers so it can
-install its Elixir compile callback and discover `sprite_ref/1`, `sprite_ref/2`,
-and `inline_ref/1` usages.
+install its Elixir compile callback and collect `sprite_ref/1`, `sprite_ref/2`,
+and `inline_ref/1` usages after module compilation.
 
 ```elixir
 def project do
@@ -42,7 +42,7 @@ Note that `:svg_sprite_ex_assets` **must** appear before the `:elixir` compiler.
 When using Phoenix code reloading in development, add `:svg_sprite_ex_assets`
 to `reloadable_compilers`. Phoenix only reruns the compilers listed there
 during request-time reloads, so omitting it can still reload the page before
-the generated sprite sheet or inline registry has been rebuilt.
+the generated sprite sheet or runtime metadata file has been rebuilt.
 
 ```elixir
 config :my_app, MyAppWeb.Endpoint,
@@ -50,6 +50,18 @@ config :my_app, MyAppWeb.Endpoint,
 ```
 
 Adjust the list to match the compilers used in your project.
+
+## Upgrade notes
+
+- `%SvgSpriteEx.InlineRef{}` is now a one-field struct with only `:name`.
+  Code that manually constructs or pattern matches on the old `:registry` field
+  must be updated.
+- Upgrading from older compiler snapshot/runtime data formats requires a clean
+  rebuild. Run `mix clean && mix compile`, or delete the app's
+  `.mix/svg_sprite_ex` compiler state directory before recompiling.
+- When multiple apps share the same code path, stale `runtime_data.etf` files
+  from sibling apps are ignored until those apps rebuild with the current
+  schema.
 
 ## Configuration
 
@@ -60,19 +72,24 @@ config :svg_sprite_ex,
   source_root: Path.expand("../priv/icons", __DIR__),
   build_path: Path.expand("../priv/static/svgs", __DIR__),
   public_path: "/svgs",
-  default_sheet: "sprites"
+  default_sheet: "sprites",
+  static_path_resolver: MyAppWeb.Endpoint
 ```
 
 ### Required configuration
 
 - `source_root` - absolute path to the directory that contains source svg files.
 - `build_path` - absolute path where the compiler generates sprite sheets.
-- `public_path` - public URL prefix for `sprite_ref/1` hrefs.
+- `public_path` - nondigested public URL prefix for generated sprite sheets.
 
 ### Optional configuration
 
 - `default_sheet` - default sprite sheet name when no `sheet` option is
   given. Defaults to `sprites`.
+- `static_path_resolver` - runtime resolver for sprite sheet URLs. This can be
+  a module that exports `static_path/1`, or `{module, function}` /
+  `{module, function, extra_args}`. When omitted, `SvgSpriteEx` renders the
+  configured `public_path` unchanged.
 
 Given the config above, if your svg file lives at
 `priv/icons/regular/xmark.svg`, the logical svg name is `regular/xmark`.
@@ -85,10 +102,19 @@ the generated outputs.
 
 When you run `mix compile`, the compiler:
 
-- scans compiled modules for `sprite_ref` and `inline_ref` calls
+- persists one ref snapshot per module that uses the macros
 - hashes the referenced svg files and compiler inputs to detect asset changes
 - writes one svg sprite sheet per sheet name into `build_path`
-- compiles generated modules for inline svg lookup and runtime metadata lookup
+- writes a runtime data artifact that powers inline svg lookup and metadata APIs
+
+Active modules contribute refs directly from their compiled exports, while
+persisted ref snapshots remain on disk for incremental compiler state and stale
+snapshot cleanup.
+
+Generated sprite refs carry the sheet public path and sprite id separately. At
+render time, `<.svg>` resolves the public path through `static_path_resolver`
+when configured, so Phoenix digested asset URLs work without changing
+`sprite_ref(...)` call sites.
 
 Your application must serve the generated files from the same public path you
 configured. For example: Write sprite sheets into `priv/static/svgs`, and
@@ -132,6 +158,12 @@ can also compile svgs to other named sheets:
 <.svg ref={sprite_ref("regular/xmark", sheet: "dashboard")} class="size-4" />
 ```
 
+When `static_path_resolver` is configured, the rendered `<use href="...">`
+points at the resolved sheet URL plus `#sprite-id`.
+`SvgSpriteEx.sprite_sheet/1` metadata does not change: `%SpriteSheetMeta{}` and
+`@sheet_meta.public_path` still carry the original unresolved `public_path`
+from compile time.
+
 ### Render inline svgs
 
 Inline mode skips the sprite sheet and renders the svg inline in the document.
@@ -142,6 +174,9 @@ Inline mode skips the sprite sheet and renders the svg inline in the document.
 
 This lets you serve the raw svg markup in the page instead of a `<use>`
 reference, without doing runtime file reads.
+
+If you construct inline refs manually, use `%SvgSpriteEx.InlineRef{name: "..."}`
+with no `:registry` field.
 
 ## Runtime metadata
 
@@ -164,6 +199,10 @@ SvgSpriteEx.inline_svg("regular/xmark")
 #=> %SvgSpriteEx.InlineSvgMeta{...}
 ```
 
+In umbrella or multi-app code paths, runtime metadata APIs skip stale
+`runtime_data.etf` files from sibling apps until those apps rebuild with the
+current schema.
+
 ## Patterns
 
 ### Preload a single sprite sheet
@@ -171,6 +210,10 @@ SvgSpriteEx.inline_svg("regular/xmark")
 When a layout or component knows it will use a specific sprite sheet, you can
 preload it by looking up the compiled sheet metadata with `sprite_sheet/1` and
 rendering a `<link rel="preload" ...>` tag.
+
+When `static_path_resolver` is configured, make sure the preload helper calls
+that same resolver before emitting the URL. Otherwise the preload `href` can
+drift from the runtime `<use href="...">` request in digested setups.
 
 In a helper or function component:
 
@@ -181,13 +224,24 @@ defmodule MyAppWeb.MyComponents do
   attr :sheet, :string, required: true
 
   def sprite_sheet_preload(assigns) do
-    assigns = assign(assigns, :sheet_meta, SvgSpriteEx.sprite_sheet(assigns.sheet))
+    sheet_meta = SvgSpriteEx.sprite_sheet(assigns.sheet)
+
+    resolved_public_path =
+      case sheet_meta do
+        nil -> nil
+        %{public_path: public_path} -> MyAppWeb.Endpoint.static_path(public_path)
+      end
+
+    assigns =
+      assigns
+      |> assign(:sheet_meta, sheet_meta)
+      |> assign(:resolved_public_path, resolved_public_path)
 
     ~H"""
     <link
       :if={@sheet_meta}
       rel="preload"
-      href={@sheet_meta.public_path}
+      href={@resolved_public_path}
       as="image"
       type="image/svg+xml"
     />
@@ -195,6 +249,9 @@ defmodule MyAppWeb.MyComponents do
   end
 end
 ```
+
+If you configured a different `static_path_resolver`, call that same resolver in
+the preload helper instead of `MyAppWeb.Endpoint.static_path/1`.
 
 Then in a layout or page template:
 

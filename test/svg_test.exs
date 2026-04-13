@@ -5,25 +5,14 @@ defmodule SvgSpriteEx.SvgTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
+  alias SvgSpriteEx.InlineAsset
   alias SvgSpriteEx.InlineRef
   alias SvgSpriteEx.Svg
 
-  defmodule InlineRegistryFixture do
-    alias SvgSpriteEx.InlineAsset
+  @runtime_data_cache_key {SvgSpriteEx.RuntimeData, :runtime_data}
 
-    def fetch("icons/alert") do
-      {:ok,
-       %InlineAsset{
-         attributes: %{"viewBox" => "0 0 24 24"},
-         inner_content: "<path d=\"M0 0h24v24H0z\" />"
-       }}
-    end
-
-    def fetch(_name), do: :error
-  end
-
-  defmodule InvalidInlineRegistryFixture do
-    def fetch("icons/bad"), do: {:ok, :invalid}
+  defmodule StaticPathResolver do
+    def static_path(path), do: "/digested#{path}?vsn=123"
   end
 
   test "loads the module" do
@@ -42,9 +31,16 @@ defmodule SvgSpriteEx.SvgTest do
   end
 
   test "svg/1 renders inline svg markup from an inline ref and merges attrs" do
+    put_runtime_data(%{
+      "icons/alert" => %InlineAsset{
+        attributes: %{"viewBox" => "0 0 24 24"},
+        inner_content: "<path d=\"M0 0h24v24H0z\" />"
+      }
+    })
+
     html =
       render_component(&Svg.svg/1,
-        ref: %InlineRef{name: "icons/alert", registry: InlineRegistryFixture},
+        ref: %InlineRef{name: "icons/alert"},
         class: "size-5",
         aria_hidden: "true",
         data_role: "icon"
@@ -67,13 +63,37 @@ defmodule SvgSpriteEx.SvgTest do
   test "wrapper components can pass either sprite or inline refs through a single ref attr" do
     sprite_html = render_component(&passthrough_wrapper/1, icon: sprite_ref("regular/xmark"))
 
+    put_runtime_data(%{
+      "icons/alert" => %InlineAsset{
+        attributes: %{},
+        inner_content: "<path d=\"M0 0h24v24H0z\" />"
+      }
+    })
+
     inline_html =
       render_component(&passthrough_wrapper/1,
-        icon: %InlineRef{name: "icons/alert", registry: InlineRegistryFixture}
+        icon: %InlineRef{name: "icons/alert"}
       )
 
     assert sprite_html =~ "<use href="
     assert inline_html =~ "<path"
+  end
+
+  test "svg/1 resolves sprite sheet hrefs through the configured static path resolver" do
+    previous_resolver = Application.get_env(:svg_sprite_ex, :static_path_resolver)
+    Application.put_env(:svg_sprite_ex, :static_path_resolver, StaticPathResolver)
+
+    on_exit(fn ->
+      if is_nil(previous_resolver) do
+        Application.delete_env(:svg_sprite_ex, :static_path_resolver)
+      else
+        Application.put_env(:svg_sprite_ex, :static_path_resolver, previous_resolver)
+      end
+    end)
+
+    html = render_component(&sprite_wrapper/1, %{})
+
+    assert html =~ ~s(<use href="/digested/assets/sprites/sprites.svg?vsn=123#)
   end
 
   test "svg/1 raises when ref is missing" do
@@ -88,19 +108,23 @@ defmodule SvgSpriteEx.SvgTest do
     end
   end
 
-  test "svg/1 raises when an inline ref cannot be fetched from its registry" do
+  test "svg/1 raises when an inline ref cannot be fetched at runtime" do
+    put_runtime_data(%{})
+
     assert_raise ArgumentError, ~r/could not be fetched at runtime/, fn ->
-      render_component(&Svg.svg/1,
-        ref: %InlineRef{name: "icons/missing", registry: InlineRegistryFixture}
-      )
+      render_component(&Svg.svg/1, ref: %InlineRef{name: "icons/missing"})
     end
   end
 
-  test "svg/1 raises when an inline registry returns an invalid result" do
+  test "svg/1 raises when runtime data returns an invalid result" do
+    :persistent_term.put(@runtime_data_cache_key, %{
+      data: %{inline_assets: %{"icons/bad" => :invalid}}
+    })
+
+    on_exit(fn -> :persistent_term.erase(@runtime_data_cache_key) end)
+
     assert_raise ArgumentError, ~r/returned an invalid result/, fn ->
-      render_component(&Svg.svg/1,
-        ref: %InlineRef{name: "icons/bad", registry: InvalidInlineRegistryFixture}
-      )
+      render_component(&Svg.svg/1, ref: %InlineRef{name: "icons/bad"})
     end
   end
 
@@ -114,5 +138,10 @@ defmodule SvgSpriteEx.SvgTest do
     ~H"""
     <.svg ref={@icon} class="size-4" />
     """
+  end
+
+  defp put_runtime_data(inline_assets) do
+    :persistent_term.put(@runtime_data_cache_key, %{data: %{inline_assets: inline_assets}})
+    on_exit(fn -> :persistent_term.erase(@runtime_data_cache_key) end)
   end
 end

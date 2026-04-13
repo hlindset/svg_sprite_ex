@@ -1,9 +1,30 @@
 defmodule SvgSpriteEx.SpriteSheet do
   @moduledoc false
 
+  require Record
+
+  alias Phoenix.HTML
+  alias Phoenix.HTML.Safe
   alias SvgSpriteEx.Source
 
+  Record.defrecordp(
+    :xml_attribute,
+    Record.extract(:xmlAttribute, from_lib: "xmerl/include/xmerl.hrl")
+  )
+
+  Record.defrecordp(
+    :xml_element,
+    Record.extract(:xmlElement, from_lib: "xmerl/include/xmerl.hrl")
+  )
+
+  Record.defrecordp(
+    :xml_text,
+    Record.extract(:xmlText, from_lib: "xmerl/include/xmerl.hrl")
+  )
+
   @passthrough_attribute_exclusions MapSet.new(["height", "viewBox", "width", "xmlns"])
+  @local_fragment_href_attrs MapSet.new(["href", "xlink:href"])
+  @local_url_reference_pattern ~r/url\(\s*(['"]?)#([^)'" ]+)\1\s*\)/
 
   @doc """
   Builds a deterministic `<svg>` sprite sheet from logical SVG asset paths.
@@ -15,7 +36,6 @@ defmodule SvgSpriteEx.SpriteSheet do
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.map(&Source.read!(&1, source_root))
-    |> ensure_unique_sprite_ids!()
     |> Enum.map(&build_symbol!/1)
     |> wrap_sprite_sheet()
   end
@@ -37,23 +57,20 @@ defmodule SvgSpriteEx.SpriteSheet do
   defp build_symbol!(%Source{
          name: normalized_name,
          attributes: attributes,
-         inner_content: inner_content
+         content_nodes: content_nodes
        }) do
-    # `inner_content` comes from `Source.read!/2`, which already parsed the SVG subtree.
-
-    view_box = Map.get(attributes, "viewBox")
+    view_box = resolve_view_box!(attributes, normalized_name)
     sprite_id = Source.sprite_id_from_normalized(normalized_name)
-    rendered_symbol_attrs = render_symbol_attrs(attributes)
-
-    if is_nil(view_box) or view_box == "" do
-      raise ArgumentError, "svg asset #{inspect(normalized_name)} is missing a viewBox"
-    end
+    id_map = build_local_id_map(attributes, content_nodes, sprite_id)
+    rewritten_attributes = rewrite_symbol_attributes!(attributes, normalized_name, id_map)
+    rendered_symbol_attrs = render_symbol_attrs(rewritten_attributes)
 
     escaped_view_box = escape_xml_attr(view_box)
+    rewritten_content = rewrite_content_nodes!(normalized_name, content_nodes, id_map)
 
     """
     <symbol id="#{sprite_id}" viewBox="#{escaped_view_box}"#{rendered_symbol_attrs}>
-    #{inner_content}
+    #{rewritten_content}
     </symbol>
     """
   end
@@ -70,22 +87,301 @@ defmodule SvgSpriteEx.SpriteSheet do
     ])
   end
 
-  defp ensure_unique_sprite_ids!(sources) do
-    collisions =
-      sources
-      |> Enum.group_by(&Source.sprite_id_from_normalized(&1.name))
-      |> Enum.filter(fn {_sprite_id, sprite_paths} -> length(sprite_paths) > 1 end)
+  defp build_local_id_map(attributes, content_nodes, sprite_id) do
+    root_id = Map.get(attributes, "id")
 
-    if collisions == [] do
-      sources
-    else
-      details =
-        Enum.map_join(collisions, "; ", fn {sprite_id, sprite_sources} ->
-          "#{sprite_id}: #{Enum.join(Enum.map(sprite_sources, & &1.file_path), ", ")}"
-        end)
+    id_map =
+      content_nodes
+      |> collect_local_ids(collect_root_id(attributes, MapSet.new()))
+      |> Map.new(fn id ->
+        rewritten_id =
+          if id == root_id do
+            sprite_id
+          else
+            "#{sprite_id}-#{id}"
+          end
 
-      raise ArgumentError, "sprite ID collisions detected: #{details}"
+        {id, rewritten_id}
+      end)
+
+    id_map
+  end
+
+  defp rewrite_symbol_attributes!(attributes, normalized_name, id_map) do
+    attributes
+    |> symbol_attributes()
+    |> Map.drop(["id"])
+    |> Enum.map(fn {name, value} ->
+      {name, rewrite_attribute_value!(name, value, normalized_name, id_map)}
+    end)
+    |> Enum.into(%{})
+  end
+
+  defp rewrite_content_nodes!(normalized_name, content_nodes, id_map) do
+    content_nodes
+    |> rewrite_nodes!(normalized_name, id_map)
+    |> render_content_nodes()
+  end
+
+  defp collect_root_id(attributes, acc) do
+    case Map.get(attributes, "id") do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> acc
+          normalized_id -> MapSet.put(acc, normalized_id)
+        end
+
+      _other ->
+        acc
     end
+  end
+
+  defp collect_local_ids([], acc), do: acc
+
+  defp collect_local_ids([node | rest], acc) do
+    acc =
+      if xml_element_node?(node) do
+        node
+        |> xml_element(:attributes)
+        |> collect_ids_from_attributes(acc)
+        |> then(&collect_local_ids(xml_element(node, :content), &1))
+      else
+        acc
+      end
+
+    collect_local_ids(rest, acc)
+  end
+
+  defp collect_ids_from_attributes(attributes, acc) do
+    Enum.reduce(attributes, acc, fn attribute, collected_ids ->
+      case {attribute_name(attribute), attribute_value(attribute)} do
+        {"id", ""} -> collected_ids
+        {"id", value} -> MapSet.put(collected_ids, value)
+        _ -> collected_ids
+      end
+    end)
+  end
+
+  defp rewrite_nodes!(nodes, normalized_name, id_map) do
+    Enum.map(nodes, &rewrite_node!(&1, normalized_name, id_map))
+  end
+
+  defp rewrite_node!(node, normalized_name, id_map) do
+    cond do
+      style_element_node?(node) ->
+        rewrite_style_node!(node, normalized_name, id_map)
+
+      xml_element_node?(node) ->
+        updated_attributes =
+          node
+          |> xml_element(:attributes)
+          |> Enum.map(&rewrite_attribute!(&1, normalized_name, id_map))
+
+        updated_content =
+          node
+          |> xml_element(:content)
+          |> rewrite_nodes!(normalized_name, id_map)
+
+        xml_element(node, attributes: updated_attributes, content: updated_content)
+
+      true ->
+        node
+    end
+  end
+
+  defp rewrite_attribute!(attribute, normalized_name, id_map) do
+    name = attribute_name(attribute)
+    value = attribute_value(attribute)
+
+    rewritten_value = rewrite_attribute_value!(name, value, normalized_name, id_map)
+
+    if rewritten_value == value do
+      attribute
+    else
+      xml_attribute(attribute, value: String.to_charlist(rewritten_value))
+    end
+  end
+
+  defp rewrite_attribute_value!(name, value, normalized_name, id_map) do
+    cond do
+      name == "id" ->
+        rewrite_local_id!(value, normalized_name, id_map)
+
+      MapSet.member?(@local_fragment_href_attrs, name) ->
+        rewrite_fragment_href!(value, name, normalized_name, id_map)
+
+      true ->
+        rewrite_url_references!(value, name, normalized_name, id_map)
+    end
+  end
+
+  defp rewrite_local_id!("", _normalized_name, _id_map), do: ""
+
+  defp rewrite_local_id!(value, normalized_name, id_map) do
+    case Map.fetch(id_map, value) do
+      {:ok, rewritten_id} ->
+        rewritten_id
+
+      :error ->
+        raise ArgumentError,
+              "svg asset #{inspect(normalized_name)} references unknown local id #{inspect(value)}"
+    end
+  end
+
+  defp rewrite_fragment_href!(value, attr_name, normalized_name, id_map) do
+    trimmed_value = String.trim(value)
+
+    cond do
+      trimmed_value == "" ->
+        value
+
+      String.starts_with?(trimmed_value, "#") ->
+        "#" <>
+          rewrite_reference_target!(
+            String.trim_leading(trimmed_value, "#"),
+            attr_name,
+            normalized_name,
+            id_map
+          )
+
+      true ->
+        value
+    end
+  end
+
+  defp rewrite_url_references!(value, _attr_name, _normalized_name, _id_map)
+       when not is_binary(value),
+       do: value
+
+  defp rewrite_url_references!(value, attr_name, normalized_name, id_map) do
+    if String.contains?(value, "url(") do
+      Regex.replace(@local_url_reference_pattern, value, fn _, quote, target ->
+        rewritten_target = rewrite_reference_target!(target, attr_name, normalized_name, id_map)
+        "url(#{quote}##{rewritten_target}#{quote})"
+      end)
+    else
+      value
+    end
+  end
+
+  defp rewrite_style_node!(node, normalized_name, id_map) do
+    updated_attributes =
+      node
+      |> xml_element(:attributes)
+      |> Enum.map(&rewrite_attribute!(&1, normalized_name, id_map))
+
+    updated_content =
+      node
+      |> xml_element(:content)
+      |> Enum.map(&rewrite_style_content_node!(&1, normalized_name, id_map))
+
+    xml_element(node, attributes: updated_attributes, content: updated_content)
+  end
+
+  defp rewrite_style_content_node!(node, normalized_name, id_map) do
+    cond do
+      xml_text_node?(node) ->
+        rewrite_style_text_node!(node, normalized_name, id_map)
+
+      xml_element_node?(node) ->
+        rewrite_node!(node, normalized_name, id_map)
+
+      true ->
+        node
+    end
+  end
+
+  defp rewrite_style_text_node!(node, normalized_name, id_map) do
+    rewritten_content =
+      node
+      |> xml_text(:value)
+      |> IO.iodata_to_binary()
+      |> rewrite_style_content!(normalized_name, id_map)
+
+    xml_text(node, value: String.to_charlist(rewritten_content))
+  end
+
+  defp rewrite_style_content!(content, normalized_name, id_map) do
+    content
+    |> rewrite_url_references!("style", normalized_name, id_map)
+    |> rewrite_style_id_selectors!(normalized_name, id_map)
+  end
+
+  defp rewrite_style_id_selectors!(content, _normalized_name, id_map) when map_size(id_map) == 0,
+    do: content
+
+  defp rewrite_style_id_selectors!(content, normalized_name, id_map) do
+    selector_pattern =
+      id_map
+      |> Map.keys()
+      |> Enum.sort_by(&byte_size/1, :desc)
+      |> Enum.map_join("|", &Regex.escape/1)
+      |> then(&Regex.compile!("(?<![[:alnum:]_-])#(#{&1})(?![[:alnum:]_-])"))
+
+    Regex.replace(selector_pattern, content, fn _, target ->
+      "##{rewrite_reference_target!(target, "style", normalized_name, id_map)}"
+    end)
+  end
+
+  defp rewrite_reference_target!(target, attr_name, normalized_name, id_map) do
+    case Map.fetch(id_map, target) do
+      {:ok, rewritten_target} ->
+        rewritten_target
+
+      :error ->
+        raise ArgumentError,
+              "svg asset #{inspect(normalized_name)} references unknown local id #{inspect(target)} " <>
+                "from #{attr_name}"
+    end
+  end
+
+  defp resolve_view_box!(attributes, normalized_name) do
+    case Map.get(attributes, "viewBox") |> normalize_view_box() do
+      nil ->
+        derive_view_box_from_dimensions!(attributes, normalized_name)
+
+      view_box ->
+        view_box
+    end
+  end
+
+  defp normalize_view_box(nil), do: nil
+
+  defp normalize_view_box(view_box) do
+    case String.trim(view_box) do
+      "" -> nil
+      normalized_view_box -> normalized_view_box
+    end
+  end
+
+  defp derive_view_box_from_dimensions!(attributes, normalized_name) do
+    with {:ok, width} <- parse_view_box_dimension(Map.get(attributes, "width")),
+         {:ok, height} <- parse_view_box_dimension(Map.get(attributes, "height")) do
+      "0 0 #{width} #{height}"
+    else
+      _ ->
+        raise ArgumentError,
+              "svg asset #{inspect(normalized_name)} is missing a viewBox and usable width/height"
+    end
+  end
+
+  defp parse_view_box_dimension(nil), do: :error
+
+  defp parse_view_box_dimension(value) when is_binary(value) do
+    case Regex.run(~r/^\s*(\d+(?:\.\d+)?)\s*(px)?\s*$/i, value) do
+      [_, dimension, _unit] -> {:ok, dimension}
+      [_, dimension] -> {:ok, dimension}
+      _ -> :error
+    end
+  end
+
+  defp parse_view_box_dimension(_value), do: :error
+
+  defp render_content_nodes(nodes) do
+    nodes
+    |> :xmerl.export_simple_content(:xmerl_xml)
+    |> IO.iodata_to_binary()
+    |> String.trim()
   end
 
   defp render_symbol_attrs(attributes) do
@@ -95,10 +391,34 @@ defmodule SvgSpriteEx.SpriteSheet do
     |> Enum.map_join("", fn {name, value} -> ~s( #{name}="#{escape_xml_attr(value)}") end)
   end
 
+  defp attribute_name(attribute) do
+    attribute
+    |> xml_attribute(:name)
+    |> Atom.to_string()
+  end
+
+  defp attribute_value(attribute) do
+    attribute
+    |> xml_attribute(:value)
+    |> IO.iodata_to_binary()
+  end
+
+  defp xml_element_node?(node) do
+    is_tuple(node) and tuple_size(node) > 0 and elem(node, 0) == :xmlElement
+  end
+
+  defp style_element_node?(node) do
+    xml_element_node?(node) and xml_element(node, :name) == :style
+  end
+
+  defp xml_text_node?(node) do
+    is_tuple(node) and tuple_size(node) > 0 and elem(node, 0) == :xmlText
+  end
+
   defp escape_xml_attr(value) do
     value
-    |> Phoenix.HTML.html_escape()
-    |> Phoenix.HTML.Safe.to_iodata()
+    |> HTML.html_escape()
+    |> Safe.to_iodata()
     |> IO.iodata_to_binary()
   end
 end

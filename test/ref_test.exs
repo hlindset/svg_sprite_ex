@@ -21,7 +21,7 @@ defmodule SvgSpriteEx.RefTest do
 
     assert %SpriteRef{} = ref
     assert ref.sheet == "ui_actions"
-    assert ref.href == "/assets/sprites/ui_actions.svg##{ref.sprite_id}"
+    assert ref.sheet_public_path == "/assets/sprites/ui_actions.svg"
     assert module.__sprite_refs__() == [{"ui_actions", "regular/xmark"}]
   end
 
@@ -40,18 +40,31 @@ defmodule SvgSpriteEx.RefTest do
 
     assert %InlineRef{} = ref
     assert ref.name == "regular/xmark"
-    assert ref.registry == SvgSpriteEx.Generated.InlineIcons
     assert module.__inline_refs__() == ["regular/xmark"]
   end
 
-  test "inline_ref does not track the source file as an external resource" do
-    module = unique_module(:inline_without_external_resource)
+  test "sprite_ref tracks the source file as an external resource" do
+    module = unique_module(:sprite_with_external_resource)
+
+    compile_module!(module, """
+    def ref, do: sprite_ref("regular/xmark")
+    """)
+
+    assert Path.join(Config.source_root!(), "regular/xmark.svg") in module_external_resources(
+             module
+           )
+  end
+
+  test "inline_ref tracks the source file as an external resource" do
+    module = unique_module(:inline_with_external_resource)
 
     compile_module!(module, """
     def ref, do: inline_ref("regular/xmark")
     """)
 
-    refute Enum.any?(module_external_resources(module))
+    assert Path.join(Config.source_root!(), "regular/xmark.svg") in module_external_resources(
+             module
+           )
   end
 
   test "sheet path helpers normalize sheet names" do
@@ -228,6 +241,11 @@ defmodule SvgSpriteEx.RefTest do
       |> Path.join("svg_sprite_ex_ref_test_#{System.unique_integer([:positive])}.exs")
       |> Path.expand()
 
+    compiler_state_path =
+      System.tmp_dir!()
+      |> Path.join("svg_sprite_ex_ref_state_#{System.unique_integer([:positive])}")
+      |> Path.expand()
+
     File.write!(
       path,
       """
@@ -239,8 +257,23 @@ defmodule SvgSpriteEx.RefTest do
       """
     )
 
-    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(path) end)
-    Code.compile_file(path)
+    previous_override = Application.get_env(:svg_sprite_ex, :compiler_state_path_override)
+    Application.put_env(:svg_sprite_ex, :compiler_state_path_override, compiler_state_path)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      File.rm_rf!(path)
+      File.rm_rf!(compiler_state_path)
+    end)
+
+    try do
+      Code.compile_file(path)
+    after
+      if is_nil(previous_override) do
+        Application.delete_env(:svg_sprite_ex, :compiler_state_path_override)
+      else
+        Application.put_env(:svg_sprite_ex, :compiler_state_path_override, previous_override)
+      end
+    end
   end
 
   defp module_external_resources(module) do

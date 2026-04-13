@@ -1,6 +1,11 @@
 defmodule SvgSpriteEx.ConfigTest do
   use ExUnit.Case
 
+  defmodule StaticPathResolverFixture do
+    def static_path(path), do: "/digested" <> path
+    def prepend_prefix(path, prefix), do: prefix <> path
+  end
+
   test "build_path! rejects blank values" do
     module = compile_config_fixture!(build_path: "   ")
 
@@ -29,6 +34,47 @@ defmodule SvgSpriteEx.ConfigTest do
                  fn ->
                    module.default_sheet!()
                  end
+  end
+
+  test "resolve_public_path!/1 falls back to the configured public path when no resolver is set" do
+    previous_resolver = Application.get_env(:svg_sprite_ex, :static_path_resolver)
+    Application.delete_env(:svg_sprite_ex, :static_path_resolver)
+
+    on_exit(fn ->
+      if is_nil(previous_resolver) do
+        Application.delete_env(:svg_sprite_ex, :static_path_resolver)
+      else
+        Application.put_env(:svg_sprite_ex, :static_path_resolver, previous_resolver)
+      end
+    end)
+
+    assert SvgSpriteEx.Config.resolve_public_path!("/sprites/icons.svg") == "/sprites/icons.svg"
+  end
+
+  test "resolve_public_path!/1 supports module and mfa resolvers" do
+    previous_resolver = Application.get_env(:svg_sprite_ex, :static_path_resolver)
+
+    on_exit(fn ->
+      if is_nil(previous_resolver) do
+        Application.delete_env(:svg_sprite_ex, :static_path_resolver)
+      else
+        Application.put_env(:svg_sprite_ex, :static_path_resolver, previous_resolver)
+      end
+    end)
+
+    Application.put_env(:svg_sprite_ex, :static_path_resolver, StaticPathResolverFixture)
+
+    assert SvgSpriteEx.Config.resolve_public_path!("/sprites/icons.svg") ==
+             "/digested/sprites/icons.svg"
+
+    Application.put_env(
+      :svg_sprite_ex,
+      :static_path_resolver,
+      {StaticPathResolverFixture, :prepend_prefix, ["/prefix"]}
+    )
+
+    assert SvgSpriteEx.Config.resolve_public_path!("/sprites/icons.svg") ==
+             "/prefix/sprites/icons.svg"
   end
 
   defp compile_config_fixture!(overrides) do

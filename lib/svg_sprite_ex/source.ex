@@ -3,14 +3,15 @@ defmodule SvgSpriteEx.Source do
 
   require Record
 
-  @enforce_keys [:name, :file_path, :attributes, :inner_content]
-  defstruct [:name, :file_path, :attributes, :inner_content]
+  @enforce_keys [:name, :file_path, :attributes, :inner_content, :content_nodes]
+  defstruct [:name, :file_path, :attributes, :inner_content, :content_nodes]
 
   @type t :: %__MODULE__{
           name: String.t(),
           file_path: String.t(),
           attributes: %{optional(String.t()) => String.t()},
-          inner_content: String.t()
+          inner_content: String.t(),
+          content_nodes: [term()]
         }
 
   Record.defrecordp(
@@ -39,13 +40,16 @@ defmodule SvgSpriteEx.Source do
     source_root = validate_source_root_directory!(source_root)
     normalized_name = normalize_name!(name, source_root)
     file_path = source_file_path_from_normalized!(normalized_name, source_root)
-    %{attributes: attributes, inner_content: inner_content} = parse_svg_file!(file_path)
+
+    %{attributes: attributes, inner_content: inner_content, content_nodes: content_nodes} =
+      parse_svg_file!(file_path)
 
     %__MODULE__{
       name: normalized_name,
       file_path: file_path,
       attributes: attributes,
-      inner_content: inner_content
+      inner_content: inner_content,
+      content_nodes: content_nodes
     }
   end
 
@@ -173,7 +177,8 @@ defmodule SvgSpriteEx.Source do
     if xml_element(root, :name) == :svg do
       %{
         attributes: parse_attributes(xml_element(root, :attributes)),
-        inner_content: render_inner_content(root)
+        inner_content: render_inner_content(root),
+        content_nodes: xml_element(root, :content)
       }
     else
       raise ArgumentError, "svg asset #{inspect(file_path)} does not contain a valid <svg> root"
