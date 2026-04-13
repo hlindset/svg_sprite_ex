@@ -160,6 +160,9 @@ can also compile svgs to other named sheets:
 
 When `static_path_resolver` is configured, the rendered `<use href="...">`
 points at the resolved sheet URL plus `#sprite-id`.
+`SvgSpriteEx.sprite_sheet/1` metadata does not change: `%SpriteSheetMeta{}` and
+`@sheet_meta.public_path` still carry the original unresolved `public_path`
+from compile time.
 
 ### Render inline svgs
 
@@ -208,6 +211,10 @@ When a layout or component knows it will use a specific sprite sheet, you can
 preload it by looking up the compiled sheet metadata with `sprite_sheet/1` and
 rendering a `<link rel="preload" ...>` tag.
 
+When `static_path_resolver` is configured, make sure the preload helper calls
+that same resolver before emitting the URL. Otherwise the preload `href` can
+drift from the runtime `<use href="...">` request in digested setups.
+
 In a helper or function component:
 
 ```elixir
@@ -217,13 +224,24 @@ defmodule MyAppWeb.MyComponents do
   attr :sheet, :string, required: true
 
   def sprite_sheet_preload(assigns) do
-    assigns = assign(assigns, :sheet_meta, SvgSpriteEx.sprite_sheet(assigns.sheet))
+    sheet_meta = SvgSpriteEx.sprite_sheet(assigns.sheet)
+
+    resolved_public_path =
+      case sheet_meta do
+        nil -> nil
+        %{public_path: public_path} -> MyAppWeb.Endpoint.static_path(public_path)
+      end
+
+    assigns =
+      assigns
+      |> assign(:sheet_meta, sheet_meta)
+      |> assign(:resolved_public_path, resolved_public_path)
 
     ~H"""
     <link
       :if={@sheet_meta}
       rel="preload"
-      href={@sheet_meta.public_path}
+      href={@resolved_public_path}
       as="image"
       type="image/svg+xml"
     />
@@ -231,6 +249,9 @@ defmodule MyAppWeb.MyComponents do
   end
 end
 ```
+
+If you configured a different `static_path_resolver`, call that same resolver in
+the preload helper instead of `MyAppWeb.Endpoint.static_path/1`.
 
 Then in a layout or page template:
 
