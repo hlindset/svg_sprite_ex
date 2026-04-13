@@ -158,6 +158,40 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert sprite_sheet =~ ~s|marker-end="url(##{sprite_id}-arrow)"|
   end
 
+  test "build rewrites quoted and whitespace-padded local url references" do
+    svg_source_root = unique_tmp_dir!("quoted-url-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/quoted.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <defs>
+          <linearGradient id="paint">
+            <stop offset="0%" />
+          </linearGradient>
+          <filter id="blur">
+            <feGaussianBlur stdDeviation="1" />
+          </filter>
+        </defs>
+        <path
+          fill="url('#paint')"
+          stroke="url(&quot;#paint&quot;)"
+          filter="url(  '#blur'  )"
+          d="M2 2h20v20H2z"
+        />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/quoted"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/quoted", svg_source_root)
+
+    assert sprite_sheet =~ ~s|fill="url('##{sprite_id}-paint')"|
+    assert sprite_sheet =~ ~s|stroke="url(&quot;##{sprite_id}-paint&quot;)"|
+    assert sprite_sheet =~ ~s|filter="url('##{sprite_id}-blur')"|
+  end
+
   test "build rewrites local href fragments" do
     svg_source_root = unique_tmp_dir!("href-refs")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))
