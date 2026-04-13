@@ -63,9 +63,6 @@ defmodule SvgSpriteEx.RuntimeData do
       case read_runtime_data(path) do
         {:ok, file_data} ->
           merge_runtime_data(file_data, path, merged_data)
-
-        :skip ->
-          merged_data
       end
     end)
     |> finalize_runtime_data()
@@ -184,7 +181,11 @@ defmodule SvgSpriteEx.RuntimeData do
           "invalid svg_sprite_ex runtime data at #{path}: #{inspect(runtime_data)}"
   end
 
-  defp validate_runtime_data(%{vsn: _other_vsn}, _path), do: :skip
+  defp validate_runtime_data(%{vsn: other_vsn}, path) do
+    raise ArgumentError,
+          "stale svg_sprite_ex runtime data at #{path}: found vsn #{inspect(other_vsn)}, " <>
+            "expected #{inspect(@runtime_data_vsn)}; rebuild the dependency or app that produced this runtime_data.etf"
+  end
 
   defp validate_runtime_data(runtime_data, path) do
     raise ArgumentError,

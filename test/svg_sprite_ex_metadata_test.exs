@@ -155,11 +155,13 @@ defmodule SvgSpriteEx.MetadataTest do
     assert File.exists?(runtime_data_path(compile_path_two))
   end
 
-  test "runtime metadata ignores stale runtime data artifacts from sibling apps" do
+  test "runtime metadata raises for stale runtime data artifacts from sibling apps" do
     {source_dir, manifest_path, compile_path, sprite_build_path} = runtime_fixture_paths!()
 
     {_stale_source_dir, _stale_manifest_path, stale_compile_path, _stale_sprite_build_path} =
       runtime_fixture_paths!()
+
+    stale_runtime_data_path = runtime_data_path(stale_compile_path)
 
     write_inline_fixture_module!(source_dir, unique_module(:current_runtime_fixture),
       name: "regular/xmark"
@@ -189,7 +191,11 @@ defmodule SvgSpriteEx.MetadataTest do
                sprite_build_path
              )
 
-    assert [%InlineSvgMeta{name: "regular/xmark"}] = SvgSpriteEx.inline_svgs()
+    assert_raise ArgumentError,
+                 ~r/stale svg_sprite_ex runtime data at #{Regex.escape(stale_runtime_data_path)}: found vsn 2, expected #{SvgSpriteEx.RuntimeData.runtime_data_vsn()}/,
+                 fn ->
+                   SvgSpriteEx.inline_svgs()
+                 end
   end
 
   test "runtime metadata rejects duplicate sheet names across app code paths" do
