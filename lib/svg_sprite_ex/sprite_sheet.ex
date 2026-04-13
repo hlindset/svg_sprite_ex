@@ -17,6 +17,11 @@ defmodule SvgSpriteEx.SpriteSheet do
     Record.extract(:xmlElement, from_lib: "xmerl/include/xmerl.hrl")
   )
 
+  Record.defrecordp(
+    :xml_text,
+    Record.extract(:xmlText, from_lib: "xmerl/include/xmerl.hrl")
+  )
+
   @passthrough_attribute_exclusions MapSet.new(["height", "viewBox", "width", "xmlns"])
   @local_fragment_href_attrs MapSet.new(["href", "xlink:href"])
   @local_url_reference_pattern ~r/url\(\s*(['"]?)#([^)'" ]+)\1\s*\)/
@@ -82,18 +87,54 @@ defmodule SvgSpriteEx.SpriteSheet do
     ])
   end
 
-  defp rewrite_content_nodes!(normalized_name, content_nodes, sprite_id) do
+  defp build_local_id_map(attributes, content_nodes, sprite_id) do
+    root_id = Map.get(attributes, "id")
+
     id_map =
       content_nodes
-      |> collect_local_ids()
-      |> Map.new(fn id -> {id, "#{sprite_id}-#{id}"} end)
+      |> collect_local_ids(collect_root_id(attributes, MapSet.new()))
+      |> Map.new(fn id ->
+        rewritten_id =
+          if id == root_id do
+            sprite_id
+          else
+            "#{sprite_id}-#{id}"
+          end
 
+        {id, rewritten_id}
+      end)
+
+    id_map
+  end
+
+  defp rewrite_symbol_attributes!(attributes, normalized_name, id_map) do
+    attributes
+    |> symbol_attributes()
+    |> Map.drop(["id"])
+    |> Enum.map(fn {name, value} ->
+      {name, rewrite_attribute_value!(name, value, normalized_name, id_map)}
+    end)
+    |> Enum.into(%{})
+  end
+
+  defp rewrite_content_nodes!(normalized_name, content_nodes, id_map) do
     content_nodes
     |> rewrite_nodes!(normalized_name, id_map)
     |> render_content_nodes()
   end
 
-  defp collect_local_ids(nodes, acc \\ MapSet.new())
+  defp collect_root_id(attributes, acc) do
+    case Map.get(attributes, "id") do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> acc
+          normalized_id -> MapSet.put(acc, normalized_id)
+        end
+
+      _other ->
+        acc
+    end
+  end
 
   defp collect_local_ids([], acc), do: acc
 
@@ -126,20 +167,25 @@ defmodule SvgSpriteEx.SpriteSheet do
   end
 
   defp rewrite_node!(node, normalized_name, id_map) do
-    if xml_element_node?(node) do
-      updated_attributes =
-        node
-        |> xml_element(:attributes)
-        |> Enum.map(&rewrite_attribute!(&1, normalized_name, id_map))
+    cond do
+      style_element_node?(node) ->
+        rewrite_style_node!(node, normalized_name, id_map)
 
-      updated_content =
-        node
-        |> xml_element(:content)
-        |> rewrite_nodes!(normalized_name, id_map)
+      xml_element_node?(node) ->
+        updated_attributes =
+          node
+          |> xml_element(:attributes)
+          |> Enum.map(&rewrite_attribute!(&1, normalized_name, id_map))
 
-      xml_element(node, attributes: updated_attributes, content: updated_content)
-    else
-      node
+        updated_content =
+          node
+          |> xml_element(:content)
+          |> rewrite_nodes!(normalized_name, id_map)
+
+        xml_element(node, attributes: updated_attributes, content: updated_content)
+
+      true ->
+        node
     end
   end
 
@@ -147,22 +193,25 @@ defmodule SvgSpriteEx.SpriteSheet do
     name = attribute_name(attribute)
     value = attribute_value(attribute)
 
-    rewritten_value =
-      cond do
-        name == "id" ->
-          rewrite_local_id!(value, normalized_name, id_map)
-
-        MapSet.member?(@local_fragment_href_attrs, name) ->
-          rewrite_fragment_href!(value, name, normalized_name, id_map)
-
-        true ->
-          rewrite_url_references!(value, name, normalized_name, id_map)
-      end
+    rewritten_value = rewrite_attribute_value!(name, value, normalized_name, id_map)
 
     if rewritten_value == value do
       attribute
     else
       xml_attribute(attribute, value: String.to_charlist(rewritten_value))
+    end
+  end
+
+  defp rewrite_attribute_value!(name, value, normalized_name, id_map) do
+    cond do
+      name == "id" ->
+        rewrite_local_id!(value, normalized_name, id_map)
+
+      MapSet.member?(@local_fragment_href_attrs, name) ->
+        rewrite_fragment_href!(value, name, normalized_name, id_map)
+
+      true ->
+        rewrite_url_references!(value, name, normalized_name, id_map)
     end
   end
 
@@ -213,6 +262,65 @@ defmodule SvgSpriteEx.SpriteSheet do
     else
       value
     end
+  end
+
+  defp rewrite_style_node!(node, normalized_name, id_map) do
+    updated_attributes =
+      node
+      |> xml_element(:attributes)
+      |> Enum.map(&rewrite_attribute!(&1, normalized_name, id_map))
+
+    updated_content =
+      node
+      |> xml_element(:content)
+      |> Enum.map(&rewrite_style_content_node!(&1, normalized_name, id_map))
+
+    xml_element(node, attributes: updated_attributes, content: updated_content)
+  end
+
+  defp rewrite_style_content_node!(node, normalized_name, id_map) do
+    cond do
+      xml_text_node?(node) ->
+        rewrite_style_text_node!(node, normalized_name, id_map)
+
+      xml_element_node?(node) ->
+        rewrite_node!(node, normalized_name, id_map)
+
+      true ->
+        node
+    end
+  end
+
+  defp rewrite_style_text_node!(node, normalized_name, id_map) do
+    rewritten_content =
+      node
+      |> xml_text(:value)
+      |> IO.iodata_to_binary()
+      |> rewrite_style_content!(normalized_name, id_map)
+
+    xml_text(node, value: String.to_charlist(rewritten_content))
+  end
+
+  defp rewrite_style_content!(content, normalized_name, id_map) do
+    content
+    |> rewrite_url_references!("style", normalized_name, id_map)
+    |> rewrite_style_id_selectors!(normalized_name, id_map)
+  end
+
+  defp rewrite_style_id_selectors!(content, _normalized_name, id_map) when map_size(id_map) == 0,
+    do: content
+
+  defp rewrite_style_id_selectors!(content, normalized_name, id_map) do
+    selector_pattern =
+      id_map
+      |> Map.keys()
+      |> Enum.sort_by(&byte_size/1, :desc)
+      |> Enum.map_join("|", &Regex.escape/1)
+      |> then(&Regex.compile!("(?<![[:alnum:]_-])#(#{&1})(?![[:alnum:]_-])"))
+
+    Regex.replace(selector_pattern, content, fn _, target ->
+      "##{rewrite_reference_target!(target, "style", normalized_name, id_map)}"
+    end)
   end
 
   defp rewrite_reference_target!(target, attr_name, normalized_name, id_map) do
@@ -297,6 +405,14 @@ defmodule SvgSpriteEx.SpriteSheet do
 
   defp xml_element_node?(node) do
     is_tuple(node) and tuple_size(node) > 0 and elem(node, 0) == :xmlElement
+  end
+
+  defp style_element_node?(node) do
+    xml_element_node?(node) and xml_element(node, :name) == :style
+  end
+
+  defp xml_text_node?(node) do
+    is_tuple(node) and tuple_size(node) > 0 and elem(node, 0) == :xmlText
   end
 
   defp escape_xml_attr(value) do
