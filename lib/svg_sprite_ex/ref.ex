@@ -11,8 +11,7 @@ defmodule SvgSpriteEx.Ref do
 
   alias SvgSpriteEx.Source
   alias SvgSpriteEx.SpriteRef
-
-  @ref_snapshot_vsn 1
+  alias SvgSpriteEx.Compiler.RefSnapshots
 
   @doc false
   defmacro __using__(_opts) do
@@ -165,26 +164,15 @@ defmodule SvgSpriteEx.Ref do
 
   def ref_snapshot_path(module, compiler_state_path)
       when is_atom(module) and is_binary(compiler_state_path) do
-    module_hash =
-      module
-      |> Atom.to_string()
-      |> then(&:crypto.hash(:sha256, &1))
-      |> Base.encode16(case: :lower)
-
-    Path.join([compiler_state_path, "refs", module_hash <> ".term"])
+    RefSnapshots.path(module, compiler_state_path)
   end
 
   @doc false
-  def ref_snapshot_vsn, do: @ref_snapshot_vsn
+  def ref_snapshot_vsn, do: RefSnapshots.ref_snapshot_vsn()
 
   @doc false
   def build_ref_snapshot(module, sprite_refs, inline_refs) do
-    %{
-      vsn: @ref_snapshot_vsn,
-      module: module,
-      sprite_refs: sprite_refs |> Enum.uniq() |> Enum.sort(),
-      inline_refs: inline_refs |> Enum.uniq() |> Enum.sort()
-    }
+    RefSnapshots.build_snapshot(module, sprite_refs, inline_refs)
   end
 
   defp normalize_explicit_sheet!(sheet), do: normalize_sheet!(sheet, sheet)
@@ -216,39 +204,12 @@ defmodule SvgSpriteEx.Ref do
   @doc false
   def __after_compile__(env, _bytecode) do
     compiler_state_path = Module.get_attribute(env.module, :svg_sprite_ex_compiler_state_path)
+    sprite_refs = env.module |> Module.get_attribute(:__sprite_refs__) |> List.wrap()
+    inline_refs = env.module |> Module.get_attribute(:__inline_refs__) |> List.wrap()
 
-    snapshot =
-      build_ref_snapshot(
-        env.module,
-        env.module
-        |> Module.get_attribute(:__sprite_refs__)
-        |> List.wrap(),
-        env.module
-        |> Module.get_attribute(:__inline_refs__)
-        |> List.wrap()
-      )
-
-    snapshot_path = ref_snapshot_path(env.module, compiler_state_path)
-
-    if snapshot.sprite_refs == [] and snapshot.inline_refs == [] do
-      File.rm(snapshot_path)
-    else
-      File.mkdir_p!(Path.dirname(snapshot_path))
-      write_atomically!(snapshot_path, :erlang.term_to_binary(snapshot))
-    end
+    RefSnapshots.write(env.module, compiler_state_path, sprite_refs, inline_refs)
 
     :ok
-  end
-
-  defp write_atomically!(path, contents) do
-    temp_path = "#{path}.tmp-#{System.unique_integer([:positive, :monotonic])}"
-
-    try do
-      File.write!(temp_path, contents)
-      File.rename!(temp_path, path)
-    after
-      File.rm(temp_path)
-    end
   end
 
   defp build_sprite_ref_ast(name, opts, caller) do
