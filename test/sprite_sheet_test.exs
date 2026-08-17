@@ -297,6 +297,52 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert sprite_sheet =~ ~s(id="#{sprite_id}-paint")
   end
 
+  test "build does not rewrite colors that match local ids in style declarations" do
+    svg_source_root = unique_tmp_dir!("style-colors")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/style_colors.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <style>
+          #fff { fill: #fff; }
+        </style>
+        <path id="fff" d="M0 0h24v24H0z" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/style_colors"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/style_colors", svg_source_root)
+
+    assert sprite_sheet =~ "##{sprite_id}-fff { fill: #fff; }"
+  end
+
+  test "build does not rewrite local-id text in style comments or strings" do
+    svg_source_root = unique_tmp_dir!("style-comments-and-strings")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/style_text.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <style>
+          /* keep #shape */
+          #shape::before { content: "#shape"; }
+        </style>
+        <path id="shape" d="M0 0h24v24H0z" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/style_text"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/style_text", svg_source_root)
+
+    assert sprite_sheet =~ "/* keep #shape */"
+    assert sprite_sheet =~ ~s(##{sprite_id}-shape::before { content: "#shape"; })
+  end
+
   test "build passes through non-local reference forms unchanged" do
     svg_source_root = unique_tmp_dir!("unsupported-refs")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))

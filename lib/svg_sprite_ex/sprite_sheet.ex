@@ -24,6 +24,7 @@ defmodule SvgSpriteEx.SpriteSheet do
 
   @passthrough_attribute_exclusions MapSet.new(["height", "viewBox", "width", "xmlns"])
   @local_fragment_href_attrs MapSet.new(["href", "xlink:href"])
+  @css_structural_token_pattern ~r/(\/\*.*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[{}])/s
   @local_url_reference_pattern ~r/url\(\s*(['"]?)#([^)'" ]+)\1\s*\)/
 
   @doc """
@@ -304,13 +305,13 @@ defmodule SvgSpriteEx.SpriteSheet do
   defp rewrite_style_content!(content, normalized_name, id_map) do
     content
     |> rewrite_url_references!("style", normalized_name, id_map)
-    |> rewrite_style_id_selectors!(normalized_name, id_map)
+    |> rewrite_style_rules!(normalized_name, id_map)
   end
 
-  defp rewrite_style_id_selectors!(content, _normalized_name, id_map) when map_size(id_map) == 0,
+  defp rewrite_style_rules!(content, _normalized_name, id_map) when map_size(id_map) == 0,
     do: content
 
-  defp rewrite_style_id_selectors!(content, normalized_name, id_map) do
+  defp rewrite_style_rules!(content, normalized_name, id_map) do
     selector_pattern =
       id_map
       |> Map.keys()
@@ -318,10 +319,136 @@ defmodule SvgSpriteEx.SpriteSheet do
       |> Enum.map_join("|", &Regex.escape/1)
       |> then(&Regex.compile!("(?<![[:alnum:]_-])#(#{&1})(?![[:alnum:]_-])"))
 
-    Regex.replace(selector_pattern, content, fn _, target ->
+    @css_structural_token_pattern
+    |> Regex.split(content, include_captures: true, trim: false)
+    |> rewrite_css_blocks([:rules], [], [], selector_pattern, normalized_name, id_map)
+    |> IO.iodata_to_binary()
+  end
+
+  defp rewrite_css_blocks([], _contexts, buffer, output, _pattern, _name, _id_map) do
+    Enum.reverse([Enum.reverse(buffer) | output])
+  end
+
+  defp rewrite_css_blocks(
+         ["{" | tokens],
+         [parent_context | _] = contexts,
+         buffer,
+         output,
+         selector_pattern,
+         normalized_name,
+         id_map
+       ) do
+    prelude = Enum.reverse(buffer)
+
+    {rewritten_prelude, child_context} =
+      rewrite_css_prelude(prelude, parent_context, selector_pattern, normalized_name, id_map)
+
+    rewrite_css_blocks(
+      tokens,
+      [child_context | contexts],
+      [],
+      ["{", rewritten_prelude | output],
+      selector_pattern,
+      normalized_name,
+      id_map
+    )
+  end
+
+  defp rewrite_css_blocks(
+         ["}" | tokens],
+         [_context | parent_contexts],
+         buffer,
+         output,
+         selector_pattern,
+         normalized_name,
+         id_map
+       ) do
+    rewrite_css_blocks(
+      tokens,
+      non_empty_contexts(parent_contexts),
+      [],
+      ["}", Enum.reverse(buffer) | output],
+      selector_pattern,
+      normalized_name,
+      id_map
+    )
+  end
+
+  defp rewrite_css_blocks(
+         [token | tokens],
+         contexts,
+         buffer,
+         output,
+         selector_pattern,
+         normalized_name,
+         id_map
+       ) do
+    rewrite_css_blocks(
+      tokens,
+      contexts,
+      [token | buffer],
+      output,
+      selector_pattern,
+      normalized_name,
+      id_map
+    )
+  end
+
+  defp rewrite_css_prelude(tokens, parent_context, selector_pattern, normalized_name, id_map) do
+    case tokens |> IO.iodata_to_binary() |> css_at_rule_context() do
+      nil ->
+        rewritten_prelude =
+          Enum.map(tokens, fn token ->
+            rewrite_css_selector_token(token, selector_pattern, normalized_name, id_map)
+          end)
+
+        {rewritten_prelude, :declarations}
+
+      child_context ->
+        {tokens, child_context_for(parent_context, child_context)}
+    end
+  end
+
+  defp rewrite_css_selector_token(<<"/*", _rest::binary>> = token, _pattern, _name, _id_map),
+    do: token
+
+  defp rewrite_css_selector_token(<<quote, _rest::binary>> = token, _pattern, _name, _id_map)
+       when quote in [?", ?'],
+       do: token
+
+  defp rewrite_css_selector_token(token, selector_pattern, normalized_name, id_map) do
+    Regex.replace(selector_pattern, token, fn _, target ->
       "##{rewrite_reference_target!(target, "style", normalized_name, id_map)}"
     end)
   end
+
+  defp css_at_rule_context(prelude) do
+    normalized_prelude = prelude |> strip_leading_css_comments() |> String.trim_leading()
+
+    cond do
+      not String.starts_with?(normalized_prelude, "@") ->
+        nil
+
+      Regex.match?(~r/^@(font-face|page|property|counter-style)\b/i, normalized_prelude) ->
+        :declarations
+
+      true ->
+        :rules
+    end
+  end
+
+  defp strip_leading_css_comments(content) do
+    case Regex.run(~r/^\s*\/\*.*?\*\//s, content) do
+      [comment] -> content |> String.replace_prefix(comment, "") |> strip_leading_css_comments()
+      nil -> content
+    end
+  end
+
+  defp child_context_for(:declarations, :rules), do: :declarations
+  defp child_context_for(_parent_context, child_context), do: child_context
+
+  defp non_empty_contexts([]), do: [:rules]
+  defp non_empty_contexts(contexts), do: contexts
 
   defp rewrite_reference_target!(target, attr_name, normalized_name, id_map) do
     case Map.fetch(id_map, target) do
