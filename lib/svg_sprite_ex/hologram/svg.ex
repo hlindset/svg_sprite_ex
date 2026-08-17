@@ -1,0 +1,53 @@
+if Code.ensure_loaded?(Hologram.Component) do
+  defmodule SvgSpriteEx.Hologram.Svg do
+    @moduledoc """
+    Hologram component for a compiled `SvgSpriteEx.SpriteRef`.
+    """
+
+    use Hologram.Component
+
+    alias SvgSpriteEx.SpriteRef
+
+    prop(:ref, :any)
+    prop(:class, :string, default: nil)
+    prop(:width, [:integer, :string], default: nil)
+    prop(:height, [:integer, :string], default: nil)
+    prop(:color, :string, default: nil)
+    prop(:fill, :string, default: nil)
+    prop(:stroke, :string, default: nil)
+    prop(:aria_label, :string, default: nil)
+
+    @impl Hologram.Component
+    def template do
+      ~HOLO"""
+      <svg
+        class={@class}
+        width={@width}
+        height={@height}
+        color={@color}
+        fill={@fill}
+        stroke={@stroke}
+        role={role(@aria_label)}
+        aria-label={@aria_label}
+        aria-hidden={aria_hidden(@aria_label)}
+      >
+        <use href={sprite_href(@ref)} />
+      </svg>
+      """
+    end
+
+    defp sprite_href(%SpriteRef{sheet_public_path: "/" <> asset_path, sprite_id: sprite_id}) do
+      asset_path(asset_path) <> "#" <> sprite_id
+    end
+
+    defp sprite_href(%SpriteRef{sheet_public_path: asset_path, sprite_id: sprite_id}) do
+      asset_path(asset_path) <> "#" <> sprite_id
+    end
+
+    defp role(nil), do: nil
+    defp role(_aria_label), do: "img"
+
+    defp aria_hidden(nil), do: "true"
+    defp aria_hidden(_aria_label), do: nil
+  end
+end

@@ -14,7 +14,7 @@ defmodule SvgSpriteEx.MixProject do
       docs: docs(),
       source_url: @source_url,
       homepage_url: @source_url,
-      elixir: "~> 1.17",
+      elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       test_coverage: [tool: ExCoveralls]
@@ -45,6 +45,7 @@ defmodule SvgSpriteEx.MixProject do
     [
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_view, "~> 1.0", optional: true},
+      {:hologram, "~> 0.11", optional: true},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:floki, "~> 0.38", only: :test},
       {:excoveralls, "~> 0.18", only: :test},

@@ -12,10 +12,25 @@ defmodule SvgSpriteEx.Ref do
   alias SvgSpriteEx.Source
   alias SvgSpriteEx.SpriteRef
 
+  @all_ref_imports [inline_ref: 1, sprite_ref: 1, sprite_ref: 2]
+  @sprite_ref_imports [sprite_ref: 1, sprite_ref: 2]
+
   @doc false
-  defmacro __using__(_opts) do
+  defmacro __using__(opts) do
+    imports =
+      case Keyword.get(opts, :only, :all) do
+        :all ->
+          @all_ref_imports
+
+        :sprite ->
+          @sprite_ref_imports
+
+        other ->
+          raise ArgumentError, "expected :only to be :all or :sprite, got: #{inspect(other)}"
+      end
+
     quote do
-      import unquote(__MODULE__), only: [inline_ref: 1, sprite_ref: 1, sprite_ref: 2]
+      import unquote(__MODULE__), only: unquote(imports)
 
       Module.register_attribute(__MODULE__, :__sprite_refs__, accumulate: true)
       Module.register_attribute(__MODULE__, :__inline_refs__, accumulate: true)
