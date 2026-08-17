@@ -44,7 +44,7 @@ defmodule SvgSpriteEx.MixProject do
   defp deps do
     [
       {:phoenix_html, "~> 4.1"},
-      {:phoenix_live_view, "~> 1.1.0"},
+      {:phoenix_live_view, "~> 1.0", optional: true},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:floki, "~> 0.38", only: :test},
       {:excoveralls, "~> 0.18", only: :test},
@@ -74,7 +74,12 @@ defmodule SvgSpriteEx.MixProject do
       source_ref: "v#{@version}",
       extras: ["README.md", "CHANGELOG.md"],
       groups_for_modules: [
-        "Primary API": [SvgSpriteEx, SvgSpriteEx.Ref, SvgSpriteEx.Svg],
+        "Primary API": [
+          SvgSpriteEx,
+          SvgSpriteEx.Ref,
+          SvgSpriteEx.LiveView,
+          SvgSpriteEx.LiveView.Svg
+        ],
         "Ref Types": [SvgSpriteEx.InlineRef, SvgSpriteEx.SpriteRef],
         "Metadata Types": [
           SvgSpriteEx.InlineSvgMeta,

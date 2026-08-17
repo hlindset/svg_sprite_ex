@@ -135,7 +135,7 @@ defmodule SvgSpriteEx.RefTest do
   end
 
   test "sprite_ref raises a compile error outside a module context" do
-    assert_raise CompileError, ~r/must be used inside a module that uses SvgSpriteEx/, fn ->
+    assert_raise CompileError, ~r/must be used inside a module that uses SvgSpriteEx.Ref/, fn ->
       Code.eval_string("""
       require SvgSpriteEx.Ref
       SvgSpriteEx.Ref.sprite_ref("regular/xmark")
@@ -245,7 +245,7 @@ defmodule SvgSpriteEx.RefTest do
       path,
       """
       defmodule #{inspect(module)} do
-        use SvgSpriteEx
+        use SvgSpriteEx.Ref
 
         #{body}
       end

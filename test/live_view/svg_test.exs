@@ -1,14 +1,14 @@
-defmodule SvgSpriteEx.SvgTest do
+defmodule SvgSpriteEx.LiveView.SvgTest do
   use ExUnit.Case
   use Phoenix.Component
-  use SvgSpriteEx
+  use SvgSpriteEx.LiveView
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias SvgSpriteEx.InlineAsset
   alias SvgSpriteEx.InlineRef
+  alias SvgSpriteEx.LiveView.Svg
   alias SvgSpriteEx.RuntimeData.Cache
-  alias SvgSpriteEx.Svg
 
   defmodule StaticPathResolver do
     def static_path(path), do: "/digested#{path}?vsn=123"
@@ -18,7 +18,11 @@ defmodule SvgSpriteEx.SvgTest do
     assert Code.ensure_loaded?(SvgSpriteEx)
   end
 
-  test "use SvgSpriteEx imports svg rendering and sprite refs" do
+  test "use SvgSpriteEx.LiveView imports svg rendering and ref helpers" do
+    assert macro_exported?(SvgSpriteEx.LiveView, :__using__, 1)
+    refute macro_exported?(SvgSpriteEx, :__using__, 1)
+    refute Code.ensure_loaded?(SvgSpriteEx.Svg)
+
     html = render_component(&sprite_wrapper/1, %{})
 
     assert html =~ ~s(<svg class="size-4")

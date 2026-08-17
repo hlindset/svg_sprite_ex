@@ -39,7 +39,7 @@ defmodule SvgSpriteEx.Ref do
   ```elixir
   defmodule MyAppWeb.IconComponents do
     use Phoenix.Component
-    use SvgSpriteEx
+    use SvgSpriteEx.LiveView
 
     def close_icon(assigns) do
       ~H"""
@@ -67,7 +67,7 @@ defmodule SvgSpriteEx.Ref do
   ```elixir
   defmodule MyAppWeb.IconComponents do
     use Phoenix.Component
-    use SvgSpriteEx
+    use SvgSpriteEx.LiveView
 
     def dashboard_icon(assigns) do
       ~H"""
@@ -92,7 +92,7 @@ defmodule SvgSpriteEx.Ref do
   ```elixir
   defmodule MyAppWeb.IconComponents do
     use Phoenix.Component
-    use SvgSpriteEx
+    use SvgSpriteEx.LiveView
 
     def close_icon(assigns) do
       ~H"""
@@ -390,6 +390,6 @@ defmodule SvgSpriteEx.Ref do
       file: caller.file,
       line: caller.line,
       description:
-        "SvgSpriteEx.Ref macros must be used inside a module that uses SvgSpriteEx or SvgSpriteEx.Ref"
+        "SvgSpriteEx.Ref macros must be used inside a module that uses SvgSpriteEx.Ref or a SvgSpriteEx framework adapter"
   end
 end
