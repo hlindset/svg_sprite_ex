@@ -1,7 +1,8 @@
 defmodule SvgSpriteEx.RuntimeData do
   @moduledoc false
 
-  @cache_key {__MODULE__, :runtime_data}
+  alias SvgSpriteEx.RuntimeData.Cache
+
   @runtime_data_vsn 3
 
   def runtime_data_vsn, do: @runtime_data_vsn
@@ -37,24 +38,11 @@ defmodule SvgSpriteEx.RuntimeData do
   end
 
   def delete do
-    :persistent_term.erase(@cache_key)
-    :ok
+    Cache.invalidate()
   end
 
   defp data do
-    case :persistent_term.get(@cache_key, :missing) do
-      %{data: data} ->
-        data
-
-      :missing ->
-        data = load_runtime_data(runtime_data_paths())
-        :persistent_term.put(@cache_key, %{data: data})
-        data
-
-      _other ->
-        delete()
-        data()
-    end
+    Cache.fetch(fn -> load_runtime_data(runtime_data_paths()) end)
   end
 
   defp load_runtime_data(paths) do

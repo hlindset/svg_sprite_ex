@@ -10,6 +10,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   alias SvgSpriteEx.Compiler
   alias SvgSpriteEx.Config
   alias SvgSpriteEx.Ref
+  alias SvgSpriteEx.RuntimeData.Cache
 
   test "run/1 returns :noop" do
     assert :noop = SvgSpriteExAssets.run([])
@@ -743,8 +744,6 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     compiler_manifest_path = compiler_manifest_path(manifest_path)
     runtime_data_path = runtime_data_path(manifest_path)
     module = unique_module(:clean_fixture)
-    runtime_data_cache_key = {SvgSpriteEx.RuntimeData, :runtime_data}
-
     write_inline_fixture_module!(source_dir, module, name: "regular/xmark")
 
     assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
@@ -760,7 +759,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
                source_root: Config.source_root!()
              )
 
-    :persistent_term.put(runtime_data_cache_key, %{data: %{inline_assets: %{"stale" => :stale}}})
+    Cache.seed(%{inline_assets: %{"stale" => :stale}})
     assert File.exists?(compiler_manifest_path)
     assert File.exists?(runtime_data_path)
 
@@ -772,7 +771,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
     refute File.exists?(compiler_manifest_path)
     refute File.exists?(runtime_data_path)
-    assert :missing = :persistent_term.get(runtime_data_cache_key, :missing)
+    assert Cache.fetch(fn -> :missing end) == :missing
   end
 
   test "compile_sprite_artifacts!/1 migrates released artifacts without deleting active sheets" do

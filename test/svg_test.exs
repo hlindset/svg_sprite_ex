@@ -7,9 +7,8 @@ defmodule SvgSpriteEx.SvgTest do
 
   alias SvgSpriteEx.InlineAsset
   alias SvgSpriteEx.InlineRef
+  alias SvgSpriteEx.RuntimeData.Cache
   alias SvgSpriteEx.Svg
-
-  @runtime_data_cache_key {SvgSpriteEx.RuntimeData, :runtime_data}
 
   defmodule StaticPathResolver do
     def static_path(path), do: "/digested#{path}?vsn=123"
@@ -117,11 +116,7 @@ defmodule SvgSpriteEx.SvgTest do
   end
 
   test "svg/1 raises when runtime data returns an invalid result" do
-    :persistent_term.put(@runtime_data_cache_key, %{
-      data: %{inline_assets: %{"icons/bad" => :invalid}}
-    })
-
-    on_exit(fn -> :persistent_term.erase(@runtime_data_cache_key) end)
+    put_runtime_data(%{"icons/bad" => :invalid})
 
     assert_raise ArgumentError, ~r/returned an invalid result/, fn ->
       render_component(&Svg.svg/1, ref: %InlineRef{name: "icons/bad"})
@@ -141,7 +136,7 @@ defmodule SvgSpriteEx.SvgTest do
   end
 
   defp put_runtime_data(inline_assets) do
-    :persistent_term.put(@runtime_data_cache_key, %{data: %{inline_assets: inline_assets}})
-    on_exit(fn -> :persistent_term.erase(@runtime_data_cache_key) end)
+    Cache.seed(%{inline_assets: inline_assets})
+    on_exit(&Cache.invalidate/0)
   end
 end
