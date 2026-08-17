@@ -176,8 +176,9 @@ defmodule SvgSpriteEx.RuntimeData do
     :erlang.binary_to_term(binary, [:safe])
   rescue
     error in [ArgumentError] ->
-      raise ArgumentError,
-            "could not decode svg_sprite_ex runtime data at #{path}: #{Exception.message(error)}"
+      reraise ArgumentError,
+              "could not decode svg_sprite_ex runtime data at #{path}: #{Exception.message(error)}",
+              __STACKTRACE__
   end
 
   defp validate_runtime_data(

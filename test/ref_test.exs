@@ -1,8 +1,8 @@
 defmodule SvgSpriteEx.RefTest do
   use ExUnit.Case
 
-  alias SvgSpriteEx.InlineRef
   alias SvgSpriteEx.Config
+  alias SvgSpriteEx.InlineRef
   alias SvgSpriteEx.Ref
   alias SvgSpriteEx.SpriteRef
 
@@ -258,8 +258,7 @@ defmodule SvgSpriteEx.RefTest do
   end
 
   defp module_external_resources(module) do
-    module.module_info(:attributes)
-    |> Keyword.get(:external_resource, [])
+    Keyword.get(module.module_info(:attributes), :external_resource, [])
   end
 
   defp unique_module(suffix) do
@@ -268,8 +267,7 @@ defmodule SvgSpriteEx.RefTest do
 
   defp with_unreadable_asset_source_root(prefix, fun) when is_function(fun, 1) do
     source_root =
-      System.tmp_dir!()
-      |> Path.join("#{prefix}_#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "#{prefix}_#{System.unique_integer([:positive])}")
 
     asset_path = Path.join([source_root, "regular", "xmark.svg"])
     File.mkdir_p!(Path.dirname(asset_path))

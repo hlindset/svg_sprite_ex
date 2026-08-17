@@ -4,6 +4,8 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   import Test.Support.CompileHelpers,
     only: [capture_result: 1, compile_fixture_modules!: 3, compiler_state_path: 1]
 
+  alias Mix.Compilers.Elixir, as: ElixirCompiler
+  alias Mix.Tasks.Compile.App, as: CompileApp
   alias Mix.Tasks.Compile.SvgSpriteExAssets
   alias SvgSpriteEx.Compiler
   alias SvgSpriteEx.Config
@@ -328,7 +330,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
     assert {{:ok, []}, _output} =
              capture_result(fn ->
-               Mix.Tasks.Compile.App.run(["--force", "--compile-path", compile_path])
+               CompileApp.run(["--force", "--compile-path", compile_path])
              end)
   end
 
@@ -937,7 +939,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
   defp manifest_modules(manifest_path) do
     manifest_path
-    |> Mix.Compilers.Elixir.read_manifest()
+    |> ElixirCompiler.read_manifest()
     |> elem(0)
     |> case do
       modules when is_map(modules) -> Map.keys(modules)
@@ -1002,13 +1004,11 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   end
 
   defp compiler_manifest_path(manifest_path) do
-    compiler_state_path(manifest_path)
-    |> Path.join("compile.svg_sprite_ex_assets")
+    Path.join(compiler_state_path(manifest_path), "compile.svg_sprite_ex_assets")
   end
 
   defp runtime_data_path(manifest_path) do
-    compiler_state_path(manifest_path)
-    |> Path.join("runtime_data.etf")
+    Path.join(compiler_state_path(manifest_path), "runtime_data.etf")
   end
 
   defp unique_module(suffix) do
@@ -1033,8 +1033,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   defp tracked_input_digest(path) do
     case File.read(path) do
       {:ok, binary} ->
-        :erlang.binary_to_term(binary, [:safe])
-        |> Map.get(:input_digest)
+        Map.get(:erlang.binary_to_term(binary, [:safe]), :input_digest)
 
       {:error, :enoent} ->
         nil

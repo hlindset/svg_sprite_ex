@@ -463,7 +463,7 @@ defmodule SvgSpriteEx.SpriteSheet do
   end
 
   defp resolve_view_box!(attributes, normalized_name) do
-    case Map.get(attributes, "viewBox") |> normalize_view_box() do
+    case normalize_view_box(Map.get(attributes, "viewBox")) do
       nil ->
         derive_view_box_from_dimensions!(attributes, normalized_name)
 

@@ -7,8 +7,8 @@ defmodule SvgSpriteEx.MetadataTest do
   alias SvgSpriteEx.Config
   alias SvgSpriteEx.InlineRef
   alias SvgSpriteEx.InlineSvgMeta
-  alias SvgSpriteEx.SpriteRef
   alias SvgSpriteEx.SpriteMeta
+  alias SvgSpriteEx.SpriteRef
   alias SvgSpriteEx.SpriteSheetMeta
 
   test "sprite metadata APIs expose compiled sprite sheets and sprites" do
