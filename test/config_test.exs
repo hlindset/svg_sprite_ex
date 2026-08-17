@@ -77,6 +77,41 @@ defmodule SvgSpriteEx.ConfigTest do
              "/prefix/sprites/icons.svg"
   end
 
+  test "resolve_public_path!/1 loads a configured resolver before checking its callback" do
+    resolver = unique_module()
+
+    compile_path =
+      Path.join(System.tmp_dir!(), "svg-sprite-ex-resolver-#{System.unique_integer()}")
+
+    previous_resolver = Application.get_env(:svg_sprite_ex, :static_path_resolver)
+
+    File.mkdir_p!(compile_path)
+
+    [{^resolver, bytecode}] =
+      Code.compile_string(
+        "defmodule #{inspect(resolver)}, do: def(static_path(path), do: \"/loaded\" <> path)"
+      )
+
+    File.write!(Path.join(compile_path, "#{resolver}.beam"), bytecode)
+    :code.purge(resolver)
+    :code.delete(resolver)
+    true = Code.prepend_path(compile_path)
+    Application.put_env(:svg_sprite_ex, :static_path_resolver, resolver)
+
+    on_exit(fn ->
+      restore_static_path_resolver(previous_resolver)
+      Code.delete_path(compile_path)
+      :code.purge(resolver)
+      :code.delete(resolver)
+      File.rm_rf!(compile_path)
+    end)
+
+    assert :code.is_loaded(resolver) == false
+
+    assert SvgSpriteEx.Config.resolve_public_path!("/sprites/icons.svg") ==
+             "/loaded/sprites/icons.svg"
+  end
+
   defp compile_config_fixture!(overrides) do
     module = unique_module()
     original_env = Application.get_all_env(:svg_sprite_ex)
@@ -118,5 +153,13 @@ defmodule SvgSpriteEx.ConfigTest do
       ConfigFixtures,
       :"fixture_#{System.unique_integer([:positive])}"
     ])
+  end
+
+  defp restore_static_path_resolver(nil) do
+    Application.delete_env(:svg_sprite_ex, :static_path_resolver)
+  end
+
+  defp restore_static_path_resolver(resolver) do
+    Application.put_env(:svg_sprite_ex, :static_path_resolver, resolver)
   end
 end

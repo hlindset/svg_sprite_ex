@@ -76,7 +76,7 @@ defmodule SvgSpriteEx.Config do
   end
 
   defp apply_resolver!(module, function, args, resolver) do
-    if function_exported?(module, function, length(args)) do
+    if Code.ensure_loaded?(module) and function_exported?(module, function, length(args)) do
       apply(module, function, args)
     else
       raise ArgumentError,
