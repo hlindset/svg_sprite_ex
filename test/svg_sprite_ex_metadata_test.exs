@@ -5,6 +5,7 @@ defmodule SvgSpriteEx.MetadataTest do
 
   alias Mix.Tasks.Compile.SvgSpriteExAssets
   alias SvgSpriteEx.Config
+  alias SvgSpriteEx.InlineAsset
   alias SvgSpriteEx.InlineRef
   alias SvgSpriteEx.InlineSvgMeta
   alias SvgSpriteEx.SpriteMeta
@@ -274,6 +275,156 @@ defmodule SvgSpriteEx.MetadataTest do
     end
   end
 
+  test "runtime metadata rejects non-map sprite containers with artifact and field paths" do
+    runtime_data = put_in(valid_runtime_data(), [:sprites_in_sheet], :invalid)
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/invalid svg_sprite_ex runtime data at .*sprites_in_sheet: expected map/
+    )
+  end
+
+  test "runtime metadata rejects unexpected top-level artifact keys" do
+    assert_runtime_data_error!(
+      Map.put(valid_runtime_data(), :unexpected, :value),
+      ~r/runtime data at .*top-level: expected exactly/
+    )
+  end
+
+  test "runtime metadata rejects non-string inline asset keys" do
+    runtime_data =
+      valid_runtime_data()
+      |> put_in([:inline_assets], %{invalid: valid_inline_asset()})
+      |> put_in([:inline_svg_map], %{invalid: valid_inline_svg_meta()})
+
+    assert_runtime_data_error!(runtime_data, ~r/inline_assets: expected string key/)
+  end
+
+  test "runtime metadata rejects malformed inline assets" do
+    runtime_data =
+      put_in(valid_runtime_data(), [:inline_assets, "regular/xmark"], %InlineAsset{
+        attributes: %{view_box: "0 0 16 16"},
+        inner_content: "<path />"
+      })
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/inline_assets\["regular\/xmark"\]\.attributes: expected string key/
+    )
+  end
+
+  test "runtime metadata rejects malformed inline svg metadata" do
+    runtime_data =
+      put_in(valid_runtime_data(), [:inline_svg_map, "regular/xmark"], %InlineSvgMeta{
+        name: "regular/xmark",
+        source_path: :invalid
+      })
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/inline_svg_map\["regular\/xmark"\]\.source_path: expected binary/
+    )
+  end
+
+  test "runtime metadata rejects malformed sprite sheet metadata" do
+    runtime_data =
+      put_in(valid_runtime_data(), [:sprite_sheet_map, "alerts"], %SpriteSheetMeta{
+        name: "alerts",
+        filename: "alerts.svg",
+        build_path: "/tmp/alerts.svg",
+        public_path: :invalid
+      })
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/sprite_sheet_map\["alerts"\]\.public_path: expected binary/
+    )
+  end
+
+  test "runtime metadata rejects malformed sprite metadata" do
+    runtime_data =
+      put_in(valid_runtime_data(), [:sprites_in_sheet, "alerts"], [
+        %SpriteMeta{
+          name: "regular/xmark",
+          sheet: "alerts",
+          sheet_public_path: "/assets/sprites/alerts.svg",
+          source_path: "/tmp/regular/xmark.svg",
+          sprite_id: :invalid
+        }
+      ])
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/sprites_in_sheet\["alerts"\]\[0\]\.sprite_id: expected binary/
+    )
+  end
+
+  test "runtime metadata requires matching inline asset and metadata keys" do
+    runtime_data = put_in(valid_runtime_data(), [:inline_svg_map], %{})
+
+    assert_runtime_data_error!(runtime_data, ~r/inline_assets: keys must match inline_svg_map/)
+  end
+
+  test "runtime metadata requires matching sprite sheet and sprite keys" do
+    runtime_data = put_in(valid_runtime_data(), [:sprites_in_sheet], %{})
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/sprite_sheet_map: keys must match sprites_in_sheet/
+    )
+  end
+
+  test "runtime metadata requires map keys to match metadata names" do
+    runtime_data =
+      put_in(valid_runtime_data(), [:inline_svg_map, "regular/xmark"], %InlineSvgMeta{
+        name: "other",
+        source_path: "/tmp/regular/xmark.svg"
+      })
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/inline_svg_map\["regular\/xmark"\]\.name: must match key/
+    )
+  end
+
+  test "runtime metadata requires sprites to belong to their map sheet" do
+    runtime_data =
+      put_in(valid_runtime_data(), [:sprites_in_sheet, "alerts"], [
+        %{valid_sprite_meta() | sheet: "other"}
+      ])
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/sprites_in_sheet\["alerts"\]\[0\]\.sheet: must match sheet key/
+    )
+  end
+
+  test "runtime metadata requires sprites to use their sheet public path" do
+    runtime_data =
+      put_in(
+        valid_runtime_data(),
+        [:sprites_in_sheet, "alerts"],
+        [%{valid_sprite_meta() | sheet_public_path: "/assets/sprites/other.svg"}]
+      )
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/sprites_in_sheet\["alerts"\]\[0\]\.sheet_public_path: must match sprite_sheet_map\["alerts"\]\.public_path/
+    )
+  end
+
+  test "runtime metadata rejects duplicate sprite names within a sheet" do
+    runtime_data =
+      update_in(valid_runtime_data(), [:sprites_in_sheet, "alerts"], fn sprites ->
+        sprites ++ sprites
+      end)
+
+    assert_runtime_data_error!(
+      runtime_data,
+      ~r/sprites_in_sheet\["alerts"\]\[1\]\.name: duplicate sprite name/
+    )
+  end
+
   test "runtime metadata rejects duplicate inline asset names across app code paths" do
     {source_dir_one, manifest_path_one, compile_path_one, sprite_build_path_one} =
       runtime_fixture_paths!()
@@ -464,6 +615,54 @@ defmodule SvgSpriteEx.MetadataTest do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, :erlang.term_to_binary(runtime_data))
     path
+  end
+
+  defp assert_runtime_data_error!(runtime_data, message) do
+    {_source_dir, _manifest_path, compile_path, _sprite_build_path} = runtime_fixture_paths!()
+
+    write_runtime_data_file!(compile_path, runtime_data)
+    setup_runtime_loader!([compile_path])
+
+    assert_raise ArgumentError, message, fn ->
+      SvgSpriteEx.inline_svgs()
+    end
+  end
+
+  defp valid_runtime_data do
+    %{
+      vsn: SvgSpriteEx.RuntimeData.runtime_data_vsn(),
+      inline_assets: %{"regular/xmark" => valid_inline_asset()},
+      inline_svg_map: %{"regular/xmark" => valid_inline_svg_meta()},
+      sprite_sheet_map: %{"alerts" => valid_sprite_sheet_meta()},
+      sprites_in_sheet: %{"alerts" => [valid_sprite_meta()]}
+    }
+  end
+
+  defp valid_inline_asset do
+    %InlineAsset{attributes: %{"viewBox" => "0 0 16 16"}, inner_content: "<path />"}
+  end
+
+  defp valid_inline_svg_meta do
+    %InlineSvgMeta{name: "regular/xmark", source_path: "/tmp/regular/xmark.svg"}
+  end
+
+  defp valid_sprite_sheet_meta do
+    %SpriteSheetMeta{
+      name: "alerts",
+      filename: "alerts.svg",
+      build_path: "/tmp/alerts.svg",
+      public_path: "/assets/sprites/alerts.svg"
+    }
+  end
+
+  defp valid_sprite_meta do
+    %SpriteMeta{
+      name: "regular/xmark",
+      sheet: "alerts",
+      sheet_public_path: "/assets/sprites/alerts.svg",
+      source_path: "/tmp/regular/xmark.svg",
+      sprite_id: "regular-xmark"
+    }
   end
 
   defp unique_module(suffix) do

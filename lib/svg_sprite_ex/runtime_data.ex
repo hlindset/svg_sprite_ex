@@ -2,6 +2,7 @@ defmodule SvgSpriteEx.RuntimeData do
   @moduledoc false
 
   alias SvgSpriteEx.RuntimeData.Cache
+  alias SvgSpriteEx.RuntimeData.Validator
 
   @runtime_data_vsn 3
 
@@ -170,34 +171,21 @@ defmodule SvgSpriteEx.RuntimeData do
   end
 
   defp validate_runtime_data(
-         %{
-           vsn: @runtime_data_vsn,
-           inline_assets: inline_assets,
-           inline_svg_map: inline_svg_map,
-           sprite_sheet_map: sprite_sheet_map,
-           sprites_in_sheet: sprites_in_sheet
-         } = runtime_data,
-         _path
-       )
-       when is_map(inline_assets) and is_map(inline_svg_map) and is_map(sprite_sheet_map) and
-              is_map(sprites_in_sheet) do
-    {:ok, runtime_data}
-  end
-
-  defp validate_runtime_data(%{vsn: @runtime_data_vsn} = runtime_data, path) do
-    raise ArgumentError,
-          "invalid svg_sprite_ex runtime data at #{path}: #{inspect(runtime_data)}"
+         %{vsn: @runtime_data_vsn} = runtime_data,
+         path
+       ) do
+    {:ok, Validator.validate!(runtime_data, path)}
   end
 
   defp validate_runtime_data(%{vsn: other_vsn}, path) do
     raise ArgumentError,
-          "stale svg_sprite_ex runtime data at #{path}: found vsn #{inspect(other_vsn)}, " <>
+          "stale svg_sprite_ex runtime data at #{path}: found vsn #{inspect(other_vsn, limit: 5, printable_limit: 80)}, " <>
             "expected #{inspect(@runtime_data_vsn)}; rebuild the dependency or app that produced this runtime_data.etf"
   end
 
-  defp validate_runtime_data(runtime_data, path) do
+  defp validate_runtime_data(_runtime_data, path) do
     raise ArgumentError,
-          "invalid svg_sprite_ex runtime data at #{path}: #{inspect(runtime_data)}"
+          "invalid svg_sprite_ex runtime data at #{path}, top-level: expected current runtime data schema"
   end
 
   defp runtime_data_paths do
