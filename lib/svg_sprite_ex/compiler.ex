@@ -2,6 +2,7 @@ defmodule SvgSpriteEx.Compiler do
   @moduledoc false
 
   alias SvgSpriteEx.Compiler.FileOps
+  alias SvgSpriteEx.Compiler.LegacyArtifacts
   alias SvgSpriteEx.Compiler.Manifest
   alias SvgSpriteEx.Compiler.RuntimeDataWriter
   alias SvgSpriteEx.Compiler.SpriteBuilder
@@ -56,7 +57,12 @@ defmodule SvgSpriteEx.Compiler do
       )
 
     if Manifest.current?(compiler_manifest, input_digest) do
-      :noop
+      LegacyArtifacts.cleanup(
+        compiler_state_path,
+        compiler_manifest_path,
+        compile_path,
+        compiler_manifest.artifact_paths
+      )
     else
       inline_sources = SpriteBuilder.load_inline_sources(inline_refs, source_root)
 
@@ -91,6 +97,14 @@ defmodule SvgSpriteEx.Compiler do
           input_digest
         )
 
+      legacy_cleanup_result =
+        LegacyArtifacts.cleanup(
+          compiler_state_path,
+          compiler_manifest_path,
+          compile_path,
+          compiler_manifest.artifact_paths ++ active_artifact_paths
+        )
+
       RuntimeDataWriter.invalidate_cache()
 
       if Enum.all?(
@@ -98,7 +112,8 @@ defmodule SvgSpriteEx.Compiler do
              sprite_result,
              runtime_data_result,
              manifest_cleanup_result,
-             manifest_write_result
+             manifest_write_result,
+             legacy_cleanup_result
            ],
            &(&1 == :noop)
          ),
@@ -117,7 +132,11 @@ defmodule SvgSpriteEx.Compiler do
 
   def clean(opts \\ []) do
     compiler_state_path = Keyword.get(opts, :compiler_state_path, compiler_state_path())
-    compiler_manifest_path = manifest_path(compiler_state_path)
+
+    compiler_manifest_path =
+      Keyword.get(opts, :compiler_manifest_path, manifest_path(compiler_state_path))
+
+    compile_path = Keyword.get(opts, :compile_path, Mix.Project.compile_path())
     runtime_data_path = Keyword.get(opts, :runtime_data_path, RuntimeDataWriter.default_path())
 
     compiler_manifest_path
@@ -125,7 +144,15 @@ defmodule SvgSpriteEx.Compiler do
     |> Map.fetch!(:artifact_paths)
     |> FileOps.cleanup_artifact_paths()
 
-    File.rm(compiler_manifest_path)
+    FileOps.rm_if_exists(compiler_manifest_path)
+
+    LegacyArtifacts.cleanup(
+      compiler_state_path,
+      compiler_manifest_path,
+      compile_path,
+      []
+    )
+
     FileOps.rm_if_exists(runtime_data_path)
     RuntimeDataWriter.invalidate_cache()
     :ok
@@ -245,6 +272,7 @@ defmodule SvgSpriteEx.Compiler do
     [
       __MODULE__,
       FileOps,
+      LegacyArtifacts,
       Manifest,
       RuntimeDataWriter,
       SpriteBuilder,

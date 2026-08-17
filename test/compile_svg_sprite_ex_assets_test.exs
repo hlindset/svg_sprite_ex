@@ -775,6 +775,193 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert :missing = :persistent_term.get(runtime_data_cache_key, :missing)
   end
 
+  test "compile_sprite_artifacts!/1 migrates released artifacts without deleting active sheets" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_state_path = compiler_state_path(manifest_path)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    runtime_data_path = runtime_data_path(manifest_path)
+
+    write_sprite_fixture_module!(source_dir, unique_module(:legacy_upgrade_fixture),
+      sheet: "alerts"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_state_path: compiler_state_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               runtime_data_path: runtime_data_path,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    active_sheet_path = Ref.sheet_build_path("alerts", sprite_build_path)
+    obsolete_sheet_path = Path.join(sprite_build_path, "obsolete.svg")
+    File.write!(obsolete_sheet_path, "<svg />")
+
+    legacy_artifact_paths = released_generated_artifact_paths(compiler_state_path, compile_path)
+
+    Enum.each(legacy_artifact_paths, fn path ->
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, "legacy")
+    end)
+
+    released_legacy_manifest_path = legacy_manifest_path(compiler_state_path)
+
+    write_released_legacy_manifest!(released_legacy_manifest_path, [
+      Path.relative_to(active_sheet_path, File.cwd!()),
+      obsolete_sheet_path | legacy_artifact_paths
+    ])
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_state_path: compiler_state_path,
+               compiler_manifest_path: compiler_manifest_path,
+               elixir_manifest_path: manifest_path,
+               runtime_data_path: runtime_data_path,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    assert File.exists?(active_sheet_path)
+    refute File.exists?(obsolete_sheet_path)
+    refute File.exists?(released_legacy_manifest_path)
+    refute Enum.any?(legacy_artifact_paths, &File.exists?/1)
+  end
+
+  test "compile_sprite_artifacts!/1 removes generated artifacts when its manifest is the legacy path" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_state_path = compiler_state_path(manifest_path)
+    default_manifest_path = compiler_manifest_path(manifest_path)
+    runtime_data_path = runtime_data_path(manifest_path)
+
+    write_sprite_fixture_module!(source_dir, unique_module(:legacy_current_manifest_fixture),
+      sheet: "alerts"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_state_path: compiler_state_path,
+               compiler_manifest_path: default_manifest_path,
+               elixir_manifest_path: manifest_path,
+               runtime_data_path: runtime_data_path,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    current_legacy_manifest_path =
+      Path.join([compiler_state_path, "..", "compile.svg_sprite_ex_assets"])
+
+    File.cp!(default_manifest_path, Path.expand(current_legacy_manifest_path))
+
+    legacy_artifact_paths = released_generated_artifact_paths(compiler_state_path, compile_path)
+
+    Enum.each(legacy_artifact_paths, fn path ->
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, "legacy")
+    end)
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               compile_path: compile_path,
+               compiler_state_path: compiler_state_path,
+               compiler_manifest_path: current_legacy_manifest_path,
+               elixir_manifest_path: manifest_path,
+               runtime_data_path: runtime_data_path,
+               build_path: sprite_build_path,
+               source_root: Config.source_root!()
+             )
+
+    assert File.exists?(Path.expand(current_legacy_manifest_path))
+    refute Enum.any?(legacy_artifact_paths, &File.exists?/1)
+  end
+
+  test "clean/1 removes artifacts tracked only by the released manifest" do
+    compiler_state_path = unique_tmp_dir!("compiler-state")
+    compile_path = unique_tmp_dir!("compile-path")
+    legacy_artifact_path = Path.join(unique_tmp_dir!("legacy-artifact"), "obsolete.svg")
+    File.write!(legacy_artifact_path, "<svg />")
+
+    released_legacy_manifest_path = legacy_manifest_path(compiler_state_path)
+    write_released_legacy_manifest!(released_legacy_manifest_path, [legacy_artifact_path])
+
+    assert :ok =
+             Compiler.clean(
+               compiler_state_path: compiler_state_path,
+               compile_path: compile_path,
+               runtime_data_path: Path.join(unique_tmp_dir!("runtime-data"), "runtime_data.etf")
+             )
+
+    refute File.exists?(legacy_artifact_path)
+    refute File.exists?(released_legacy_manifest_path)
+  end
+
+  test "clean/1 removes generated artifacts when its manifest is the legacy path" do
+    compiler_state_path = unique_tmp_dir!("compiler-state")
+    compile_path = unique_tmp_dir!("compile-path")
+
+    current_legacy_manifest_path =
+      Path.join([compiler_state_path, "..", "compile.svg_sprite_ex_assets"])
+
+    write_current_manifest!(Path.expand(current_legacy_manifest_path), [])
+
+    legacy_artifact_paths = released_generated_artifact_paths(compiler_state_path, compile_path)
+
+    Enum.each(legacy_artifact_paths, fn path ->
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, "legacy")
+    end)
+
+    assert :ok =
+             Compiler.clean(
+               compiler_state_path: compiler_state_path,
+               compiler_manifest_path: current_legacy_manifest_path,
+               compile_path: compile_path,
+               runtime_data_path: Path.join(unique_tmp_dir!("runtime-data"), "runtime_data.etf")
+             )
+
+    refute File.exists?(Path.expand(current_legacy_manifest_path))
+    refute Enum.any?(legacy_artifact_paths, &File.exists?/1)
+  end
+
+  test "clean/1 honors a custom manifest without removing the default manifest" do
+    compiler_state_path = unique_tmp_dir!("compiler-state")
+    default_manifest_path = Path.join(compiler_state_path, "compile.svg_sprite_ex_assets")
+    custom_manifest_path = Path.join(unique_tmp_dir!("custom-manifest"), "compiler.manifest")
+    default_artifact_path = Path.join(unique_tmp_dir!("default-artifact"), "default.svg")
+    custom_artifact_path = Path.join(unique_tmp_dir!("custom-artifact"), "custom.svg")
+
+    File.write!(default_artifact_path, "<svg />")
+    File.write!(custom_artifact_path, "<svg />")
+    write_current_manifest!(default_manifest_path, [default_artifact_path])
+    write_current_manifest!(custom_manifest_path, [custom_artifact_path])
+
+    assert :ok =
+             Compiler.clean(
+               compiler_state_path: compiler_state_path,
+               compiler_manifest_path: custom_manifest_path,
+               runtime_data_path: Path.join(unique_tmp_dir!("runtime-data"), "runtime_data.etf")
+             )
+
+    refute File.exists?(custom_manifest_path)
+    refute File.exists?(custom_artifact_path)
+    assert File.exists?(default_manifest_path)
+    assert File.exists?(default_artifact_path)
+  end
+
   test "compile_sprite_artifacts!/1 rebuilds when the compiler fingerprint changes" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
@@ -1048,6 +1235,50 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
   defp write_legacy_manifest!(path, artifact_paths) do
     File.write!(path, :erlang.term_to_binary(%{vsn: 1, artifact_paths: artifact_paths}))
+  end
+
+  defp write_current_manifest!(path, artifact_paths) do
+    File.mkdir_p!(Path.dirname(path))
+
+    File.write!(
+      path,
+      :erlang.term_to_binary(%{vsn: 3, artifact_paths: artifact_paths, input_digest: "digest"})
+    )
+  end
+
+  defp write_released_legacy_manifest!(path, artifact_paths) do
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, :erlang.term_to_binary(%{vsn: 1, artifact_paths: artifact_paths}))
+  end
+
+  defp legacy_manifest_path(compiler_state_path) do
+    compiler_state_path
+    |> Path.dirname()
+    |> Path.join("compile.svg_sprite_ex_assets")
+  end
+
+  defp released_generated_artifact_paths(compiler_state_path, compile_path) do
+    generated_source_paths =
+      Enum.map(
+        [
+          "svg_sprite_ex_generated_inline_icons.ex",
+          "svg_sprite_ex_generated_inline_svgs.ex",
+          "svg_sprite_ex_generated_sprite_sheets.ex"
+        ],
+        &Path.join(Path.dirname(compiler_state_path), &1)
+      )
+
+    generated_beam_paths =
+      Enum.map(
+        [
+          SvgSpriteEx.Generated.InlineIcons,
+          SvgSpriteEx.Generated.InlineSvgs,
+          SvgSpriteEx.Generated.SpriteSheets
+        ],
+        &Path.join(compile_path, Atom.to_string(&1) <> ".beam")
+      )
+
+    generated_source_paths ++ generated_beam_paths
   end
 
   defp elixir_manifest_path!(source_dir) do
