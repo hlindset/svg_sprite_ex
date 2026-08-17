@@ -1,10 +1,11 @@
 if Code.ensure_loaded?(Phoenix.Component) do
   defmodule SvgSpriteEx.LiveView.Svg do
     @moduledoc """
-    SVG rendering component.
+    LiveView component for compiled sprite and inline SVG refs.
 
     Use `ref={sprite_ref("regular/xmark")}` to render from a generated sprite
     sheet or `ref={inline_ref("regular/xmark")}` to inline compiled SVG data.
+    `use SvgSpriteEx.LiveView` imports this component and both ref macros.
 
     Sprite refs render only the caller-provided SVG attributes. Inline refs merge
     caller attributes onto the compiled root SVG attributes and render the
@@ -27,9 +28,10 @@ if Code.ensure_loaded?(Phoenix.Component) do
     @doc """
     Renders an SVG from a SvgSpriteEx ref.
 
-    Pass a `SvgSpriteEx.SpriteRef` from `sprite_ref/1` or `sprite_ref/2` to render
-    a `<use>` tag backed by a generated sprite sheet. Pass a
-    `SvgSpriteEx.InlineRef` from `inline_ref/1` to inline the compiled SVG markup.
+    Pass a `SvgSpriteEx.SpriteRef` from `SvgSpriteEx.Ref.sprite_ref/1` or
+    `SvgSpriteEx.Ref.sprite_ref/2` to render a `<use>` tag backed by a generated
+    sprite sheet. Pass a `SvgSpriteEx.InlineRef` from
+    `SvgSpriteEx.Ref.inline_ref/1` to inline the compiled SVG markup.
 
     ## Examples
 

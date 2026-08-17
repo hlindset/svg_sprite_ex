@@ -62,7 +62,7 @@ defmodule SvgSpriteEx.MixProject do
   end
 
   defp description do
-    "Compile-time SVG sprite sheets and inline icon rendering for Phoenix components and LiveView."
+    "Compile-time SVG sprite sheets with optional LiveView and Hologram components."
   end
 
   defp package do
@@ -82,11 +82,12 @@ defmodule SvgSpriteEx.MixProject do
       source_ref: "v#{@version}",
       extras: ["README.md", "CHANGELOG.md"],
       groups_for_modules: [
-        "Primary API": [
-          SvgSpriteEx,
-          SvgSpriteEx.Ref,
+        "Primary API": [SvgSpriteEx, SvgSpriteEx.Ref],
+        "Framework Adapters": [
           SvgSpriteEx.LiveView,
-          SvgSpriteEx.LiveView.Svg
+          SvgSpriteEx.LiveView.Svg,
+          SvgSpriteEx.Hologram,
+          SvgSpriteEx.Hologram.Svg
         ],
         "Ref Types": [SvgSpriteEx.InlineRef, SvgSpriteEx.SpriteRef],
         "Metadata Types": [

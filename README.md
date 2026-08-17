@@ -1,9 +1,9 @@
 # SvgSpriteEx
 
-`SvgSpriteEx` lets you turn svg files into compile-time svg refs for Phoenix
-components and LiveView.
+`SvgSpriteEx` turns SVG files into compile-time refs with optional Phoenix
+LiveView and Hologram components.
 
-You can render svgs in two ways:
+The LiveView adapter can render SVGs in two ways:
 
 - `ref={sprite_ref("...")}` renders a `<svg><use ... /></svg>` wrapper backed
   by a generated sprite sheet
@@ -11,15 +11,22 @@ You can render svgs in two ways:
 
 ## Installation
 
-Add `svg_sprite_ex` to your dependencies:
+Add `svg_sprite_ex` and the adapters selected by your application to your
+dependencies:
 
 ```elixir
 def deps do
   [
-    {:svg_sprite_ex, "~> 0.2.0"}
+    {:svg_sprite_ex, "~> 0.2.0"},
+    {:phoenix_live_view, "~> 1.0"}, # when using LiveView
+    {:hologram, "~> 0.11"}         # when using Hologram
   ]
 end
 ```
+
+SvgSpriteEx requires Elixir 1.19 or later and OTP 28.1 or later. LiveView and
+Hologram are optional: include only the framework dependencies your application
+uses.
 
 Then register the sprite compiler ahead of the default Mix compilers so it can
 install its Elixir compile callback and collect `sprite_ref/1`, `sprite_ref/2`,
@@ -38,6 +45,17 @@ end
 ```
 
 Note that `:svg_sprite_ex_assets` **must** appear before the `:elixir` compiler.
+
+Hologram applications must also keep `:hologram` last so it runs after Elixir
+and the SvgSpriteEx compiler callback:
+
+```elixir
+def project do
+  [
+    compilers: [:svg_sprite_ex_assets] ++ Mix.compilers() ++ [:hologram]
+  ]
+end
+```
 
 When using Phoenix code reloading in development, add `:svg_sprite_ex_assets`
 to `reloadable_compilers`. Phoenix only reruns the compilers listed there
@@ -142,28 +160,39 @@ Your application must serve the generated files from the same public path you
 configured. For example: Write sprite sheets into `priv/static/svgs`, and
 serve them from `/svgs`.
 
-## Phoenix usage
+## LiveView usage
 
-Use `SvgSpriteEx` in any component, LiveView, or HTML module that renders svgs:
+Use `SvgSpriteEx.LiveView` in any component, LiveView, or HTML module that
+renders SVGs:
 
 ```elixir
 defmodule MyAppWeb.MyComponents do
   use Phoenix.Component
-  use SvgSpriteEx
+  use SvgSpriteEx.LiveView
 end
 ```
 
 This will import:
 
-- the `<.svg>` function component from `SvgSpriteEx.Svg`
+- the `<.svg>` function component from `SvgSpriteEx.LiveView.Svg`
 - the `sprite_ref` and `inline_ref` macros from `SvgSpriteEx.Ref`
+
+If you previously imported the component directly, update the import:
+
+```elixir
+# Before
+import SvgSpriteEx.Svg
+
+# After
+import SvgSpriteEx.LiveView.Svg
+```
 
 ### Render using a sprite sheet
 
 ```elixir
 defmodule MyAppWeb.MyComponents do
   use Phoenix.Component
-  use SvgSpriteEx
+  use SvgSpriteEx.LiveView
 
   def close_icon(assigns) do
     ~H"""
@@ -199,6 +228,33 @@ reference, without doing runtime file reads.
 
 If you construct inline refs manually, use `%SvgSpriteEx.InlineRef{name: "..."}`
 with no `:registry` field.
+
+## Hologram usage
+
+The Hologram adapter provides sprite refs and a sprite-only module component:
+
+```elixir
+defmodule MyApp.Components do
+  use Hologram.Component
+  use SvgSpriteEx.Hologram
+
+  @impl Hologram.Component
+  def template do
+    ~HOLO"""
+    <SvgSpriteEx.Hologram.Svg
+      ref={sprite_ref("regular/search")}
+      class="size-4"
+      color="currentColor"
+      aria_label="Search"
+    />
+    """
+  end
+end
+```
+
+`SvgSpriteEx.Hologram.Svg` accepts `class`, `width`, `height`, `color`, `fill`,
+`stroke`, and `aria_label`. It renders only `%SvgSpriteEx.SpriteRef{}` values;
+Hologram does not accept `%SvgSpriteEx.InlineRef{}`.
 
 ## Runtime metadata
 

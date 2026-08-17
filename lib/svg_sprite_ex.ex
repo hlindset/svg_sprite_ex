@@ -3,9 +3,17 @@ defmodule SvgSpriteEx do
   Runtime metadata API for compiled SvgSpriteEx sprite sheets and inline SVGs.
 
   Use `SvgSpriteEx.Ref` to register refs in framework-neutral modules.
-  `SvgSpriteEx.LiveView` provides the Phoenix LiveView `<.svg>` component and
-  ref helpers. `SvgSpriteEx.Hologram` provides the corresponding Hologram
-  integration.
+  `SvgSpriteEx.LiveView` provides ref helpers and the
+  `SvgSpriteEx.LiveView.Svg` function component. `SvgSpriteEx.Hologram`
+  provides sprite refs for the `SvgSpriteEx.Hologram.Svg` module component.
+
+  ## Framework-neutral refs
+
+      defmodule MyApp.Icons do
+        use SvgSpriteEx.Ref
+
+        def search, do: sprite_ref("regular/search")
+      end
   """
 
   alias SvgSpriteEx.Config

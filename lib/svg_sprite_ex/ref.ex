@@ -7,6 +7,20 @@ defmodule SvgSpriteEx.Ref do
 
   The helper functions here also expose the derived sheet paths and normalized
   sheet names used by the compile pipeline.
+
+  Use this module directly when a module only needs to register or return refs:
+
+  ```elixir
+  defmodule MyApp.Icons do
+    use SvgSpriteEx.Ref
+
+    def search, do: sprite_ref("regular/search")
+    def logo, do: inline_ref("brands/logo")
+  end
+  ```
+
+  For rendering, use `SvgSpriteEx.LiveView` or the sprite-only
+  `SvgSpriteEx.Hologram` adapter.
   """
 
   alias SvgSpriteEx.Source

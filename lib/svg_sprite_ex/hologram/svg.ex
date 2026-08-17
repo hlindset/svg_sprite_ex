@@ -2,6 +2,13 @@ if Code.ensure_loaded?(Hologram.Component) do
   defmodule SvgSpriteEx.Hologram.Svg do
     @moduledoc """
     Hologram component for a compiled `SvgSpriteEx.SpriteRef`.
+
+    The component accepts `class`, `width`, `height`, `color`, `fill`, `stroke`,
+    and `aria_label` props. A non-nil `aria_label` gives the rendered SVG an
+    image role; otherwise it is hidden from assistive technology.
+
+    This component is sprite-only and does not accept `SvgSpriteEx.InlineRef`.
+    Use `SvgSpriteEx.LiveView.Svg` when inline rendering is required.
     """
 
     use Hologram.Component
