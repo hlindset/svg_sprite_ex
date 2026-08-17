@@ -268,6 +268,199 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert sprite_sheet =~ ~s(xlink:href="##{sprite_id}-shape")
   end
 
+  test "build rewrites known ARIA, for, and SMIL timing ID references" do
+    svg_source_root = unique_tmp_dir!("idrefs-and-timing")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/references.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <g id="active" />
+        <g id="control" />
+        <g id="description" />
+        <g id="details" />
+        <g id="error" />
+        <g id="flow" />
+        <g id="label" />
+        <g id="owner" />
+        <path
+          id="shape"
+          aria-activedescendant="active"
+          aria-controls="control   external-control"
+          aria-describedby="description"
+          aria-details="details"
+          aria-errormessage="error"
+          aria-flowto="flow"
+          aria-labelledby="label   description"
+          aria-owns="owner"
+          for="label"
+        />
+        <animate
+          begin="shape.click; 2s; accessKey(a); shape.begin+250ms"
+          end="shape.end-1s; indefinite; wallclock(2026-08-18T12:00:00Z)"
+        />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/references"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/references", svg_source_root)
+
+    assert sprite_sheet =~ ~s(aria-activedescendant="#{sprite_id}-active")
+    assert sprite_sheet =~ ~s(aria-controls="#{sprite_id}-control   external-control")
+    assert sprite_sheet =~ ~s(aria-describedby="#{sprite_id}-description")
+    assert sprite_sheet =~ ~s(aria-details="#{sprite_id}-details")
+    assert sprite_sheet =~ ~s(aria-errormessage="#{sprite_id}-error")
+    assert sprite_sheet =~ ~s(aria-flowto="#{sprite_id}-flow")
+
+    assert sprite_sheet =~
+             ~s(aria-labelledby="#{sprite_id}-label   #{sprite_id}-description")
+
+    assert sprite_sheet =~ ~s(aria-owns="#{sprite_id}-owner")
+    assert sprite_sheet =~ ~s(for="#{sprite_id}-label")
+
+    assert sprite_sheet =~
+             ~s|begin="#{sprite_id}-shape.click; 2s; accessKey(a); #{sprite_id}-shape.begin+250ms"|
+
+    assert sprite_sheet =~
+             ~s|end="#{sprite_id}-shape.end-1s; indefinite; wallclock(2026-08-18T12:00:00Z)"|
+  end
+
+  test "build rewrites local URLs only in supported SVG attributes" do
+    svg_source_root = unique_tmp_dir!("url-contexts")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/url_contexts.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <linearGradient id="paint" />
+        <path
+          fill="URL(#paint)"
+          style="stroke: URL('#paint')"
+          aria-label="url(#missing)"
+          data-reference="URL(#missing)"
+        />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/url_contexts"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/url_contexts", svg_source_root)
+
+    assert sprite_sheet =~ ~s|fill="URL(##{sprite_id}-paint)"|
+    assert sprite_sheet =~ ~s|style="stroke: URL('##{sprite_id}-paint')"|
+    assert sprite_sheet =~ ~s|aria-label="url(#missing)"|
+    assert sprite_sheet =~ ~s|data-reference="URL(#missing)"|
+  end
+
+  test "build rewrites CSS references according to lexical context" do
+    svg_source_root = unique_tmp_dir!("css-reference-contexts")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/css_references.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <linearGradient id="paint" />
+        <filter id="blur" />
+        <path id="shape.icon" />
+        <path id="fff" />
+        <style>
+          /* URL(#paint) and #shape\\.icon stay literal */
+          #shape\\.icon::before {
+            content: "URL(#paint) and #shape\\.icon";
+            fill: URL(#paint);
+          }
+          [href="#shape.icon"], [xlink\\:href='#shape.icon'] { filter: url('#blur'); }
+          [data-reference="#shape.icon"] { color: #fff; }
+          .group {
+            #shape\\.icon { stroke: url(#paint); }
+          }
+          @scope (#shape\\.icon) to (#fff) {
+            [href="#shape.icon"] { fill: url(#paint); }
+          }
+          @supports selector([xlink\\:href='#shape.icon']) {
+            #shape\\.icon { filter: URL(#blur); }
+          }
+          @keyframes pulse {
+            from { color: #fff; }
+            to { color: #fff; }
+          }
+          #fff { fill: #fff; }
+        </style>
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/css_references"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/css_references", svg_source_root)
+
+    assert sprite_sheet =~ "/* URL(#paint) and #shape\\.icon stay literal */"
+    assert sprite_sheet =~ ~s|content: "URL(#paint) and #shape\\.icon";|
+
+    assert sprite_sheet =~
+             "##{sprite_id}-shape\\.icon::before"
+
+    assert sprite_sheet =~ ~s|fill: URL(##{sprite_id}-paint);|
+
+    assert sprite_sheet =~
+             ~s|[href="##{sprite_id}-shape.icon"], [xlink\\:href='##{sprite_id}-shape.icon']|
+
+    assert sprite_sheet =~ ~s|filter: url('##{sprite_id}-blur');|
+    assert sprite_sheet =~ ~s|[data-reference="#shape.icon"] { color: #fff; }|
+    assert sprite_sheet =~ ".group {\n      ##{sprite_id}-shape\\.icon"
+
+    assert sprite_sheet =~
+             "@scope (##{sprite_id}-shape\\.icon) to (##{sprite_id}-fff)"
+
+    assert sprite_sheet =~
+             "@supports selector([xlink\\:href='##{sprite_id}-shape.icon'])"
+
+    assert sprite_sheet =~ "@keyframes pulse"
+    assert sprite_sheet =~ "from { color: #fff; }"
+    assert sprite_sheet =~ "to { color: #fff; }"
+    assert sprite_sheet =~ "##{sprite_id}-fff { fill: #fff; }"
+  end
+
+  test "build preserves an empty href fragment" do
+    svg_source_root = unique_tmp_dir!("empty-href-fragment")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/empty_href.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <use href="#" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/empty_href"], source_root: svg_source_root)
+
+    assert sprite_sheet =~ ~s(href="#")
+  end
+
+  test "build strips exactly one hash from non-empty href fragments" do
+    svg_source_root = unique_tmp_dir!("double-href-fragment")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/double_href.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="shape" />
+        <use href="##shape" />
+      </svg>
+      """
+    )
+
+    assert_raise ArgumentError, ~r/unknown local id "#shape" from href/, fn ->
+      SpriteSheet.build(["icons/double_href"], source_root: svg_source_root)
+    end
+  end
+
   test "build rewrites style block selectors and local url references" do
     svg_source_root = unique_tmp_dir!("style-blocks")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))

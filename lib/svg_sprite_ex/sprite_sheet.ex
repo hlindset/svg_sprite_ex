@@ -6,6 +6,7 @@ defmodule SvgSpriteEx.SpriteSheet do
   alias Phoenix.HTML
   alias Phoenix.HTML.Safe
   alias SvgSpriteEx.Source
+  alias SvgSpriteEx.SpriteSheet.CSSRewriter
 
   Record.defrecordp(
     :xml_attribute,
@@ -24,8 +25,34 @@ defmodule SvgSpriteEx.SpriteSheet do
 
   @passthrough_attribute_exclusions MapSet.new(["height", "viewBox", "width", "xmlns"])
   @local_fragment_href_attrs MapSet.new(["href", "xlink:href"])
-  @css_structural_token_pattern ~r/(\/\*.*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[{}])/s
-  @local_url_reference_pattern ~r/url\(\s*(['"]?)#([^)'" ]+)\1\s*\)/
+  @id_reference_attrs MapSet.new([
+                        "aria-activedescendant",
+                        "aria-controls",
+                        "aria-describedby",
+                        "aria-details",
+                        "aria-errormessage",
+                        "aria-flowto",
+                        "aria-labelledby",
+                        "aria-owns",
+                        "for"
+                      ])
+
+  @smil_timing_attrs MapSet.new(["begin", "end"])
+
+  @url_reference_attrs MapSet.new([
+                         "clip-path",
+                         "color-profile",
+                         "cursor",
+                         "fill",
+                         "filter",
+                         "marker",
+                         "marker-end",
+                         "marker-mid",
+                         "marker-start",
+                         "mask",
+                         "stroke",
+                         "style"
+                       ])
 
   @doc """
   Builds a deterministic `<svg>` sprite sheet from logical SVG asset paths.
@@ -211,8 +238,17 @@ defmodule SvgSpriteEx.SpriteSheet do
       MapSet.member?(@local_fragment_href_attrs, name) ->
         rewrite_fragment_href!(value, name, normalized_name, id_map)
 
+      MapSet.member?(@id_reference_attrs, name) ->
+        rewrite_known_id_references(value, id_map)
+
+      MapSet.member?(@smil_timing_attrs, name) ->
+        rewrite_smil_timing_references(value, id_map)
+
+      MapSet.member?(@url_reference_attrs, name) ->
+        CSSRewriter.rewrite_urls!(value, normalized_name, id_map, name)
+
       true ->
-        rewrite_url_references!(value, name, normalized_name, id_map)
+        value
     end
   end
 
@@ -233,35 +269,55 @@ defmodule SvgSpriteEx.SpriteSheet do
     trimmed_value = String.trim(value)
 
     cond do
-      trimmed_value == "" ->
+      trimmed_value in ["", "#"] ->
         value
 
       String.starts_with?(trimmed_value, "#") ->
-        "#" <>
-          rewrite_reference_target!(
-            String.trim_leading(trimmed_value, "#"),
-            attr_name,
-            normalized_name,
-            id_map
-          )
+        target = binary_part(trimmed_value, 1, byte_size(trimmed_value) - 1)
+        rewritten_target = rewrite_reference_target!(target, attr_name, normalized_name, id_map)
+        replace_trimmed_value(value, "##{rewritten_target}")
 
       true ->
         value
     end
   end
 
-  defp rewrite_url_references!(value, _attr_name, _normalized_name, _id_map)
-       when not is_binary(value),
-       do: value
+  defp replace_trimmed_value(value, replacement) do
+    leading_size = byte_size(value) - byte_size(String.trim_leading(value))
+    trailing_size = byte_size(value) - byte_size(String.trim_trailing(value))
 
-  defp rewrite_url_references!(value, attr_name, normalized_name, id_map) do
-    if String.contains?(value, "url(") do
-      Regex.replace(@local_url_reference_pattern, value, fn _, quote, target ->
-        rewritten_target = rewrite_reference_target!(target, attr_name, normalized_name, id_map)
-        "url(#{quote}##{rewritten_target}#{quote})"
-      end)
-    else
-      value
+    leading = binary_part(value, 0, leading_size)
+    trailing = binary_part(value, byte_size(value) - trailing_size, trailing_size)
+
+    IO.iodata_to_binary([leading, replacement, trailing])
+  end
+
+  defp rewrite_known_id_references(value, id_map) do
+    value
+    |> String.split(~r/(\s+)/u, include_captures: true, trim: false)
+    |> Enum.map_join(&Map.get(id_map, &1, &1))
+  end
+
+  defp rewrite_smil_timing_references(value, id_map) do
+    ids = id_map |> Map.keys() |> Enum.sort_by(&byte_size/1, :desc)
+
+    value
+    |> String.split(";", trim: false)
+    |> Enum.map_join(";", &rewrite_smil_timing_reference(&1, ids, id_map))
+  end
+
+  defp rewrite_smil_timing_reference(value, ids, id_map) do
+    trimmed_value = String.trim_leading(value)
+
+    case Enum.find(ids, &String.starts_with?(trimmed_value, &1 <> ".")) do
+      nil ->
+        value
+
+      id ->
+        leading_size = byte_size(value) - byte_size(trimmed_value)
+        leading = binary_part(value, 0, leading_size)
+        rewritten = String.replace_prefix(trimmed_value, id, Map.fetch!(id_map, id))
+        leading <> rewritten
     end
   end
 
@@ -303,152 +359,8 @@ defmodule SvgSpriteEx.SpriteSheet do
   end
 
   defp rewrite_style_content!(content, normalized_name, id_map) do
-    content
-    |> rewrite_url_references!("style", normalized_name, id_map)
-    |> rewrite_style_rules!(normalized_name, id_map)
+    CSSRewriter.rewrite_stylesheet!(content, normalized_name, id_map)
   end
-
-  defp rewrite_style_rules!(content, _normalized_name, id_map) when map_size(id_map) == 0,
-    do: content
-
-  defp rewrite_style_rules!(content, normalized_name, id_map) do
-    selector_pattern =
-      id_map
-      |> Map.keys()
-      |> Enum.sort_by(&byte_size/1, :desc)
-      |> Enum.map_join("|", &Regex.escape/1)
-      |> then(&Regex.compile!("(?<![[:alnum:]_-])#(#{&1})(?![[:alnum:]_-])"))
-
-    @css_structural_token_pattern
-    |> Regex.split(content, include_captures: true, trim: false)
-    |> rewrite_css_blocks([:rules], [], [], selector_pattern, normalized_name, id_map)
-    |> IO.iodata_to_binary()
-  end
-
-  defp rewrite_css_blocks([], _contexts, buffer, output, _pattern, _name, _id_map) do
-    Enum.reverse([Enum.reverse(buffer) | output])
-  end
-
-  defp rewrite_css_blocks(
-         ["{" | tokens],
-         [parent_context | _] = contexts,
-         buffer,
-         output,
-         selector_pattern,
-         normalized_name,
-         id_map
-       ) do
-    prelude = Enum.reverse(buffer)
-
-    {rewritten_prelude, child_context} =
-      rewrite_css_prelude(prelude, parent_context, selector_pattern, normalized_name, id_map)
-
-    rewrite_css_blocks(
-      tokens,
-      [child_context | contexts],
-      [],
-      ["{", rewritten_prelude | output],
-      selector_pattern,
-      normalized_name,
-      id_map
-    )
-  end
-
-  defp rewrite_css_blocks(
-         ["}" | tokens],
-         [_context | parent_contexts],
-         buffer,
-         output,
-         selector_pattern,
-         normalized_name,
-         id_map
-       ) do
-    rewrite_css_blocks(
-      tokens,
-      non_empty_contexts(parent_contexts),
-      [],
-      ["}", Enum.reverse(buffer) | output],
-      selector_pattern,
-      normalized_name,
-      id_map
-    )
-  end
-
-  defp rewrite_css_blocks(
-         [token | tokens],
-         contexts,
-         buffer,
-         output,
-         selector_pattern,
-         normalized_name,
-         id_map
-       ) do
-    rewrite_css_blocks(
-      tokens,
-      contexts,
-      [token | buffer],
-      output,
-      selector_pattern,
-      normalized_name,
-      id_map
-    )
-  end
-
-  defp rewrite_css_prelude(tokens, parent_context, selector_pattern, normalized_name, id_map) do
-    case tokens |> IO.iodata_to_binary() |> css_at_rule_context() do
-      nil ->
-        rewritten_prelude =
-          Enum.map(tokens, fn token ->
-            rewrite_css_selector_token(token, selector_pattern, normalized_name, id_map)
-          end)
-
-        {rewritten_prelude, :declarations}
-
-      child_context ->
-        {tokens, child_context_for(parent_context, child_context)}
-    end
-  end
-
-  defp rewrite_css_selector_token(<<"/*", _rest::binary>> = token, _pattern, _name, _id_map),
-    do: token
-
-  defp rewrite_css_selector_token(<<quote, _rest::binary>> = token, _pattern, _name, _id_map)
-       when quote in [?", ?'],
-       do: token
-
-  defp rewrite_css_selector_token(token, selector_pattern, normalized_name, id_map) do
-    Regex.replace(selector_pattern, token, fn _, target ->
-      "##{rewrite_reference_target!(target, "style", normalized_name, id_map)}"
-    end)
-  end
-
-  defp css_at_rule_context(prelude) do
-    normalized_prelude = prelude |> strip_leading_css_comments() |> String.trim_leading()
-
-    cond do
-      not String.starts_with?(normalized_prelude, "@") ->
-        nil
-
-      Regex.match?(~r/^@(font-face|page|property|counter-style)\b/i, normalized_prelude) ->
-        :declarations
-
-      true ->
-        :rules
-    end
-  end
-
-  defp strip_leading_css_comments(content) do
-    case Regex.run(~r/^\s*\/\*.*?\*\//s, content) do
-      [comment] -> content |> String.replace_prefix(comment, "") |> strip_leading_css_comments()
-      nil -> content
-    end
-  end
-
-  defp child_context_for(:declarations, :rules), do: :declarations
-  defp child_context_for(_parent_context, child_context), do: child_context
-
-  defp non_empty_contexts([]), do: [:rules]
-  defp non_empty_contexts(contexts), do: contexts
 
   defp rewrite_reference_target!(target, attr_name, normalized_name, id_map) do
     case Map.fetch(id_map, target) do

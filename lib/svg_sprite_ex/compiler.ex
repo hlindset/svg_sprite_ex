@@ -283,6 +283,7 @@ defmodule SvgSpriteEx.Compiler do
       SvgSpriteEx.Source,
       SvgSpriteEx.SpriteMeta,
       SvgSpriteEx.SpriteSheet,
+      SvgSpriteEx.SpriteSheet.CSSRewriter,
       SvgSpriteEx.SpriteSheetMeta
     ]
     |> Enum.map(fn module ->
