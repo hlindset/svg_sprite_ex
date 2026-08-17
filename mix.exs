@@ -17,7 +17,14 @@ defmodule SvgSpriteEx.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      test_coverage: [tool: ExCoveralls]
+      test_coverage: [tool: ExCoveralls],
+      test_load_filters: [
+        fn path ->
+          String.ends_with?(path, "_test.exs") and
+            not String.starts_with?(path, "test/fixtures/adapter_consumer/")
+        end
+      ],
+      test_ignore_filters: [~r"^test/fixtures/adapter_consumer/"]
     ]
   end
 
