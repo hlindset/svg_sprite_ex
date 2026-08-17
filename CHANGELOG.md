@@ -4,9 +4,8 @@
 
 - Replaced generated runtime registry modules with a runtime data artifact and
   static loader modules, removing the extra generated-source compile pass.
-- Persisted per-module ref snapshots from the macro layer after compilation and
-  made the compiler fail fast on missing or outdated snapshots instead of
-  bootstrapping legacy state. Upgrading now requires a clean rebuild.
+- Collects macro refs directly from compiled module exports without persisting
+  a separate per-module snapshot subsystem.
 - Made compiler invalidation aware of compiler pipeline changes, so library
   upgrades rebuild stale sprite sheets and runtime metadata artifacts instead of
   silently reusing them.

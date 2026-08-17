@@ -3,47 +3,35 @@ defmodule Test.Support.CompileHelpers do
   import ExUnit.CaptureIO, only: [capture_io: 1]
 
   def compile_fixture_modules!(manifest_path, source_dir, compile_path) do
-    override = compiler_state_path(manifest_path)
-    previous_override = Application.get_env(:svg_sprite_ex, :compiler_state_path_override)
-    Application.put_env(:svg_sprite_ex, :compiler_state_path_override, override)
+    {result, output} =
+      capture_result(fn ->
+        # Note: This intentionally uses Mix's internal compile/7 API for test
+        # infrastructure. If the signature changes on Elixir upgrade, update this
+        # helper.
+        Mix.Compilers.Elixir.compile(
+          manifest_path,
+          [source_dir],
+          compile_path,
+          {:svg_sprite_ex_test, source_dir},
+          [],
+          [],
+          []
+        )
+      end)
 
-    try do
-      {result, output} =
-        capture_result(fn ->
-          # Note: This intentionally uses Mix's internal compile/7 API for test
-          # infrastructure. If the signature changes on Elixir upgrade, update this
-          # helper.
-          Mix.Compilers.Elixir.compile(
-            manifest_path,
-            [source_dir],
-            compile_path,
-            {:svg_sprite_ex_test, source_dir},
-            [],
-            [],
-            []
-          )
-        end)
+    case result do
+      {:ok, _diagnostics} ->
+        :ok
 
-      case result do
-        {:ok, _diagnostics} ->
-          :ok
+      {:noop, _diagnostics} ->
+        :ok
 
-        {:noop, _diagnostics} ->
-          :ok
+      {:error, diagnostics} ->
+        flunk("""
+        fixture modules failed to compile: #{inspect(diagnostics)}
 
-        {:error, diagnostics} ->
-          flunk("""
-          fixture modules failed to compile: #{inspect(diagnostics)}
-
-          #{output}
-          """)
-      end
-    after
-      if is_nil(previous_override) do
-        Application.delete_env(:svg_sprite_ex, :compiler_state_path_override)
-      else
-        Application.put_env(:svg_sprite_ex, :compiler_state_path_override, previous_override)
-      end
+        #{output}
+        """)
     end
   end
 

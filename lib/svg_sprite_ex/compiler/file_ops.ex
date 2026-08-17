@@ -13,19 +13,6 @@ defmodule SvgSpriteEx.Compiler.FileOps do
     |> changed()
   end
 
-  def list_regular_files(path) do
-    case File.ls(path) do
-      {:ok, entries} ->
-        entries
-        |> Enum.map(&Path.join(path, &1))
-        |> Enum.filter(&File.regular?/1)
-        |> Enum.sort()
-
-      {:error, _reason} ->
-        []
-    end
-  end
-
   def write_if_changed(path, contents) do
     current_contents =
       case File.read(path) do

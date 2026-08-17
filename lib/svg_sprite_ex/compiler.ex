@@ -3,11 +3,9 @@ defmodule SvgSpriteEx.Compiler do
 
   alias SvgSpriteEx.Compiler.FileOps
   alias SvgSpriteEx.Compiler.Manifest
-  alias SvgSpriteEx.Compiler.RefSnapshots
   alias SvgSpriteEx.Compiler.RuntimeDataWriter
   alias SvgSpriteEx.Compiler.SpriteBuilder
   alias SvgSpriteEx.Config
-  alias SvgSpriteEx.Ref
   alias SvgSpriteEx.Source
 
   def default_compile_opts do
@@ -41,12 +39,7 @@ defmodule SvgSpriteEx.Compiler do
     compiler_manifest = Manifest.read(compiler_manifest_path)
     modules = project_modules(elixir_manifest_path)
 
-    {sprite_refs, inline_refs, ref_snapshot_result} =
-      RefSnapshots.collect_project_refs(
-        compile_path,
-        compiler_state_path,
-        modules
-      )
+    {sprite_refs, inline_refs} = collect_project_refs(compile_path, modules)
 
     compiler_fingerprint = Keyword.get(opts, :compiler_fingerprint, compiler_fingerprint())
 
@@ -63,7 +56,7 @@ defmodule SvgSpriteEx.Compiler do
       )
 
     if Manifest.current?(compiler_manifest, input_digest) do
-      FileOps.changed([ref_snapshot_result])
+      :noop
     else
       inline_sources = SpriteBuilder.load_inline_sources(inline_refs, source_root)
 
@@ -102,7 +95,6 @@ defmodule SvgSpriteEx.Compiler do
 
       if Enum.all?(
            [
-             ref_snapshot_result,
              sprite_result,
              runtime_data_result,
              manifest_cleanup_result,
@@ -123,9 +115,10 @@ defmodule SvgSpriteEx.Compiler do
     Manifest.path(compiler_state_path)
   end
 
-  def clean do
-    compiler_state_path = compiler_state_path()
+  def clean(opts \\ []) do
+    compiler_state_path = Keyword.get(opts, :compiler_state_path, compiler_state_path())
     compiler_manifest_path = manifest_path(compiler_state_path)
+    runtime_data_path = Keyword.get(opts, :runtime_data_path, RuntimeDataWriter.default_path())
 
     compiler_manifest_path
     |> Manifest.read()
@@ -133,10 +126,36 @@ defmodule SvgSpriteEx.Compiler do
     |> FileOps.cleanup_artifact_paths()
 
     File.rm(compiler_manifest_path)
-    File.rm_rf(RefSnapshots.snapshots_path(compiler_state_path))
-    FileOps.rm_if_exists(RuntimeDataWriter.default_path())
+    FileOps.rm_if_exists(runtime_data_path)
     RuntimeDataWriter.invalidate_cache()
     :ok
+  end
+
+  defp collect_project_refs(compile_path, modules) do
+    Code.prepend_path(compile_path)
+
+    ref_modules = project_ref_modules(modules)
+
+    sprite_refs =
+      ref_modules
+      |> Enum.flat_map(& &1.__sprite_refs__())
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    inline_refs =
+      ref_modules
+      |> Enum.flat_map(& &1.__inline_refs__())
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    {sprite_refs, inline_refs}
+  end
+
+  defp project_ref_modules(modules) do
+    Enum.filter(modules, fn module ->
+      Code.ensure_loaded?(module) and function_exported?(module, :__sprite_refs__, 0) and
+        function_exported?(module, :__inline_refs__, 0)
+    end)
   end
 
   defp project_modules(elixir_manifest_path) do
@@ -219,7 +238,7 @@ defmodule SvgSpriteEx.Compiler do
   defp manifest_modules(_modules), do: []
 
   defp compiler_state_path do
-    Ref.compiler_state_path!()
+    Path.join([Mix.Project.app_path(), ".mix", "svg_sprite_ex"])
   end
 
   defp compiler_fingerprint do
@@ -227,7 +246,6 @@ defmodule SvgSpriteEx.Compiler do
       __MODULE__,
       FileOps,
       Manifest,
-      RefSnapshots,
       RuntimeDataWriter,
       SpriteBuilder,
       SvgSpriteEx.RuntimeData,

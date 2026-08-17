@@ -56,9 +56,9 @@ Adjust the list to match the compilers used in your project.
 - `%SvgSpriteEx.InlineRef{}` is now a one-field struct with only `:name`.
   Code that manually constructs or pattern matches on the old `:registry` field
   must be updated.
-- Upgrading from older compiler snapshot/runtime data formats requires a clean
-  rebuild. Run `mix clean && mix compile`, or delete the app's
-  `.mix/svg_sprite_ex` compiler state directory before recompiling.
+- Upgrading from older runtime data formats requires a clean rebuild. Run
+  `mix clean && mix compile`, or delete the app's `.mix/svg_sprite_ex` compiler
+  state directory before recompiling.
 - When multiple apps share the same code path, stale `runtime_data.etf` files
   from sibling apps are ignored until those apps rebuild with the current
   schema.
@@ -102,14 +102,10 @@ the generated outputs.
 
 When you run `mix compile`, the compiler:
 
-- persists one ref snapshot per module that uses the macros
+- collects refs from the compiled exports of modules that use the macros
 - hashes the referenced svg files and compiler inputs to detect asset changes
 - writes one svg sprite sheet per sheet name into `build_path`
 - writes a runtime data artifact that powers inline svg lookup and metadata APIs
-
-Active modules contribute refs directly from their compiled exports, while
-persisted ref snapshots remain on disk for incremental compiler state and stale
-snapshot cleanup.
 
 Generated sprite refs carry the sheet public path and sprite id separately. At
 render time, `<.svg>` resolves the public path through `static_path_resolver`
