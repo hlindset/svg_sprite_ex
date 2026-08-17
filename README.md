@@ -59,9 +59,9 @@ Adjust the list to match the compilers used in your project.
 - Upgrading from older runtime data formats requires a clean rebuild. Run
   `mix clean && mix compile`, or delete the app's `.mix/svg_sprite_ex` compiler
   state directory before recompiling.
-- When multiple apps share the same code path, stale `runtime_data.etf` files
-  from sibling apps are ignored until those apps rebuild with the current
-  schema.
+- When multiple apps share the same code path, an incompatible sibling
+  `runtime_data.etf` raises with the artifact path. Rebuild every app or
+  dependency that produced stale runtime data.
 
 ## Configuration
 

@@ -11,8 +11,8 @@
   silently reusing them.
 - Changed `%SvgSpriteEx.InlineRef{}` to a one-field struct containing only
   `:name`.
-- Updated runtime metadata loading to ignore stale sibling `runtime_data.etf`
-  files on the code path until those apps rebuild with the current schema.
+- Runtime metadata loading fails fast when it encounters a stale sibling
+  `runtime_data.etf` on the code path and identifies the artifact to rebuild.
 
 ## 0.2.0 - 2026-03-25
 
