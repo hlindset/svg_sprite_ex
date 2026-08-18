@@ -8,6 +8,7 @@ defmodule SvgSpriteEx.SpriteSheet do
   alias SvgSpriteEx.Source
   alias SvgSpriteEx.SpriteSheet.CSSRewriter
   alias SvgSpriteEx.SpriteSheet.Fragment
+  alias SvgSpriteEx.Xmerl
 
   Record.defrecordp(
     :xml_attribute,
@@ -505,7 +506,7 @@ defmodule SvgSpriteEx.SpriteSheet do
     rewritten_content =
       node
       |> xml_text(:value)
-      |> IO.iodata_to_binary()
+      |> Xmerl.characters_to_binary()
       |> rewrite_style_content!(normalized_name, id_map)
 
     xml_text(node, value: String.to_charlist(rewritten_content))
@@ -572,7 +573,7 @@ defmodule SvgSpriteEx.SpriteSheet do
   defp render_content_nodes(nodes) do
     nodes
     |> :xmerl.export_simple_content(:xmerl_xml)
-    |> IO.iodata_to_binary()
+    |> Xmerl.characters_to_binary()
     |> String.trim()
   end
 
@@ -592,7 +593,7 @@ defmodule SvgSpriteEx.SpriteSheet do
   defp attribute_value(attribute) do
     attribute
     |> xml_attribute(:value)
-    |> IO.iodata_to_binary()
+    |> Xmerl.characters_to_binary()
   end
 
   defp xml_element_node?(node) do

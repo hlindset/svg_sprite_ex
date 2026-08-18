@@ -27,6 +27,26 @@ defmodule SvgSpriteEx.SourceTest do
     assert source.inner_content =~ "<path"
   end
 
+  test "read!/2 converts xmerl Unicode attributes and content to UTF-8" do
+    svg_source_root = unique_tmp_dir!("unicode")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/unicode.svg"),
+      """
+      <svg viewBox="0 0 24 24" data-label="caf&#xE9;">
+        <text>snow &#x2603;</text>
+      </svg>
+      """
+    )
+
+    source = Source.read!("icons/unicode", svg_source_root)
+
+    assert source.attributes["data-label"] == "café"
+    assert source.inner_content =~ "<text>snow ☃</text>"
+    assert String.valid?(source.inner_content)
+  end
+
   test "source_file_path!/2 accepts files under a relative source root" do
     svg_source_root = unique_tmp_dir!("relative-root")
     relative_root = Path.relative_to(svg_source_root, File.cwd!(), force: true)

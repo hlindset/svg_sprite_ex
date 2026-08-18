@@ -326,6 +326,51 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert sprite_sheet =~ ~s(href="#shape%2Gicon")
   end
 
+  test "build matches numeric-entity Unicode ids to percent-encoded hrefs" do
+    svg_source_root = unique_tmp_dir!("unicode-id-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/unicode_links.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="caf&#xE9;" />
+        <use href="#caf%C3%A9" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/unicode_links"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/unicode_links", svg_source_root)
+
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-café")
+    assert sprite_sheet =~ ~s(href="##{sprite_id}-café")
+    assert String.valid?(sprite_sheet)
+  end
+
+  test "build converts Unicode style, attribute, and text content to UTF-8" do
+    svg_source_root = unique_tmp_dir!("unicode-content")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/unicode_content.svg"),
+      """
+      <svg viewBox="0 0 24 24" data-label="caf&#xE9;">
+        <style>#shape::after { content: "caf&#xE9;"; }</style>
+        <path id="shape" aria-label="caf&#xE9;">snow &#x2603;</path>
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/unicode_content"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/unicode_content", svg_source_root)
+
+    assert sprite_sheet =~ ~s(data-label="café")
+    assert sprite_sheet =~ ~s(##{sprite_id}-shape::after { content: "café"; })
+    assert sprite_sheet =~ ~s(aria-label="café">snow ☃</path>)
+    assert String.valid?(sprite_sheet)
+  end
+
   test "build rewrites known ARIA, for, and SMIL timing ID references" do
     svg_source_root = unique_tmp_dir!("idrefs-and-timing")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))
@@ -698,7 +743,8 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     Enum.each(
       [
         {"empty", "", "must not be empty"},
-        {"whitespace", "two words", "must not contain whitespace"}
+        {"whitespace", "two words", "must not contain whitespace"},
+        {"unicode-whitespace", "two&#xA0;words", "must not contain whitespace"}
       ],
       fn {fixture, id, expected_message} ->
         svg_source_root = unique_tmp_dir!("invalid-#{fixture}-id")

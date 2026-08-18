@@ -3,6 +3,8 @@ defmodule SvgSpriteEx.Source do
 
   require Record
 
+  alias SvgSpriteEx.Xmerl
+
   @enforce_keys [:name, :file_path, :attributes, :inner_content, :content_nodes]
   defstruct [:name, :file_path, :attributes, :inner_content, :content_nodes]
 
@@ -210,7 +212,7 @@ defmodule SvgSpriteEx.Source do
     root
     |> xml_element(:content)
     |> :xmerl.export_simple_content(:xmerl_xml)
-    |> IO.iodata_to_binary()
+    |> Xmerl.characters_to_binary()
     |> String.trim()
   end
 
@@ -223,7 +225,7 @@ defmodule SvgSpriteEx.Source do
   defp attribute_value(attribute) do
     attribute
     |> xml_attribute(:value)
-    |> IO.iodata_to_binary()
+    |> Xmerl.characters_to_binary()
   end
 
   defp safe_name!(name, source_root, original_name) do

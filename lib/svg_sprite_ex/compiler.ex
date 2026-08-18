@@ -287,7 +287,8 @@ defmodule SvgSpriteEx.Compiler do
       SvgSpriteEx.SpriteSheet,
       SvgSpriteEx.SpriteSheet.CSSRewriter,
       SvgSpriteEx.SpriteSheet.Fragment,
-      SvgSpriteEx.SpriteSheetMeta
+      SvgSpriteEx.SpriteSheetMeta,
+      SvgSpriteEx.Xmerl
     ]
     |> Enum.map(fn module ->
       Code.ensure_loaded!(module)
