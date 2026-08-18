@@ -47,6 +47,26 @@ defmodule SvgSpriteEx.SourceTest do
     assert String.valid?(source.inner_content)
   end
 
+  test "read!/2 parses literal UTF-8 attributes and content" do
+    svg_source_root = unique_tmp_dir!("literal-unicode")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/literal_unicode.svg"),
+      """
+      <svg viewBox="0 0 24 24" data-label="café">
+        <text>snow ☃</text>
+      </svg>
+      """
+    )
+
+    source = Source.read!("icons/literal_unicode", svg_source_root)
+
+    assert source.attributes["data-label"] == "café"
+    assert source.inner_content =~ "<text>snow ☃</text>"
+    assert String.valid?(source.inner_content)
+  end
+
   test "source_file_path!/2 accepts files under a relative source root" do
     svg_source_root = unique_tmp_dir!("relative-root")
     relative_root = Path.relative_to(svg_source_root, File.cwd!(), force: true)
@@ -184,6 +204,22 @@ defmodule SvgSpriteEx.SourceTest do
     assert_raise ArgumentError, ~r/does not contain valid XML/, fn ->
       Source.read!("icons/bad", svg_source_root)
     end
+  end
+
+  test "read!/2 reports invalid UTF-8 bytes as asset-aware invalid XML" do
+    svg_source_root = unique_tmp_dir!("invalid-utf8")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+    file_path = Path.join(svg_source_root, "icons/invalid_utf8.svg")
+
+    File.write!(file_path, ["<svg><text>", <<0xFF>>, "</text></svg>"])
+
+    error =
+      assert_raise ArgumentError, fn ->
+        Source.read!("icons/invalid_utf8", svg_source_root)
+      end
+
+    assert Exception.message(error) =~
+             "svg asset #{inspect(file_path)} does not contain valid XML:"
   end
 
   test "read!/2 raises when the root element is not svg" do

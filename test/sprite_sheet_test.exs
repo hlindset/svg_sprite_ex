@@ -348,6 +348,30 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert String.valid?(sprite_sheet)
   end
 
+  test "build matches literal UTF-8 ids to percent-encoded hrefs" do
+    svg_source_root = unique_tmp_dir!("literal-unicode-id-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/literal_unicode_links.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="café" />
+        <use href="#caf%C3%A9" />
+      </svg>
+      """
+    )
+
+    sprite_sheet =
+      SpriteSheet.build(["icons/literal_unicode_links"], source_root: svg_source_root)
+
+    sprite_id = Source.sprite_id("icons/literal_unicode_links", svg_source_root)
+
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-café")
+    assert sprite_sheet =~ ~s(href="##{sprite_id}-café")
+    assert String.valid?(sprite_sheet)
+  end
+
   test "build converts Unicode style, attribute, and text content to UTF-8" do
     svg_source_root = unique_tmp_dir!("unicode-content")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))

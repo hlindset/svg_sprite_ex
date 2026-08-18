@@ -189,7 +189,7 @@ defmodule SvgSpriteEx.Source do
 
   defp parse_xml_document!(svg_document, file_path) do
     svg_document
-    |> String.to_charlist()
+    |> :binary.bin_to_list()
     |> :xmerl_scan.string(@xmerl_scan_opts)
     |> elem(0)
   catch
