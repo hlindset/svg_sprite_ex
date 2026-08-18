@@ -1033,6 +1033,26 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert File.exists?(default_artifact_path)
   end
 
+  test "clean/1 reports the path when a tracked artifact cannot be removed" do
+    compiler_state_path = unique_tmp_dir!("compiler-state")
+    compiler_manifest_path = compiler_manifest_path_from_state(compiler_state_path)
+    offending_path = Path.join(unique_tmp_dir!("offending-artifact"), "directory")
+
+    File.mkdir_p!(offending_path)
+    write_current_manifest!(compiler_manifest_path, [offending_path])
+
+    error =
+      assert_raise File.Error, fn ->
+        Compiler.clean(
+          compiler_state_path: compiler_state_path,
+          compiler_manifest_path: compiler_manifest_path,
+          runtime_data_path: Path.join(unique_tmp_dir!("runtime-data"), "runtime_data.etf")
+        )
+      end
+
+    assert error.path == offending_path
+  end
+
   test "compile_sprite_artifacts!/1 rebuilds when the compiler fingerprint changes" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
@@ -1323,6 +1343,10 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
 
   defp compiler_manifest_path(manifest_path) do
     Path.join(compiler_state_path(manifest_path), "compile.svg_sprite_ex_assets")
+  end
+
+  defp compiler_manifest_path_from_state(compiler_state_path) do
+    Path.join(compiler_state_path, "compile.svg_sprite_ex_assets")
   end
 
   defp runtime_data_path(manifest_path) do

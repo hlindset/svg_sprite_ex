@@ -44,6 +44,7 @@ defmodule SvgSpriteEx.Compiler.FileOps do
     case File.rm(path) do
       :ok -> :ok
       {:error, :enoent} -> :noop
+      {:error, reason} -> raise File.Error, reason: reason, action: "remove file", path: path
     end
   end
 end
