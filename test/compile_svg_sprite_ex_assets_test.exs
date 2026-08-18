@@ -10,6 +10,7 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
   alias SvgSpriteEx.Compiler
   alias SvgSpriteEx.Config
   alias SvgSpriteEx.Ref
+  alias SvgSpriteEx.RuntimeData
   alias SvgSpriteEx.RuntimeData.Cache
 
   test "run/1 returns :noop" do
@@ -652,6 +653,77 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     refute first_runtime_data.inline_assets["regular/xmark"].attributes["fill"]
     assert second_runtime_data.inline_assets["regular/xmark"].attributes["fill"] == "currentColor"
     assert second_runtime_data.inline_assets["regular/xmark"].inner_content =~ "M1 1h22v22H1z"
+  end
+
+  test "compile_sprite_artifacts!/1 invalidates runtime data after a post-write cleanup failure" do
+    source_dir = unique_tmp_dir!("source-dir")
+    app_path = unique_tmp_dir!("app-path")
+    compile_path = Path.join(app_path, "ebin")
+    sprite_build_path = unique_tmp_dir!("sprite-build-path")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_state_path = compiler_state_path(manifest_path)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    runtime_data_path = Path.join(app_path, "priv/svg_sprite_ex/runtime_data.etf")
+    svg_source_root = unique_svg_source_root!("runtime-cleanup-retry")
+
+    Cache.invalidate()
+    on_exit(&Cache.invalidate/0)
+
+    write_inline_fixture_module!(source_dir, unique_module(:runtime_cleanup_retry_fixture),
+      name: "regular/xmark"
+    )
+
+    write_svg_source!(
+      svg_source_root,
+      "regular/xmark",
+      ~s(<svg viewBox="0 0 24 24"><path data-version="OLD" d="M0 0h24v24H0z" /></svg>)
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    compile_opts = [
+      compile_path: compile_path,
+      compiler_state_path: compiler_state_path,
+      compiler_manifest_path: compiler_manifest_path,
+      elixir_manifest_path: manifest_path,
+      runtime_data_path: runtime_data_path,
+      build_path: sprite_build_path,
+      source_root: svg_source_root
+    ]
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               Keyword.put(compile_opts, :compiler_fingerprint, "fingerprint-v1")
+             )
+
+    assert {:ok, old_asset} = RuntimeData.fetch_inline_asset("regular/xmark")
+    assert old_asset.inner_content =~ ~s(data-version="OLD")
+
+    write_svg_source!(
+      svg_source_root,
+      "regular/xmark",
+      ~s(<svg viewBox="0 0 24 24"><path data-version="NEW" d="M1 1h22v22H1z" /></svg>)
+    )
+
+    blocking_artifact_path = Path.join(unique_tmp_dir!("blocking-artifact"), "directory")
+    File.mkdir_p!(blocking_artifact_path)
+
+    write_released_legacy_manifest!(legacy_manifest_path(compiler_state_path), [
+      blocking_artifact_path
+    ])
+
+    retry_opts = Keyword.put(compile_opts, :compiler_fingerprint, "fingerprint-v2")
+
+    assert catch_error(SvgSpriteExAssets.compile_sprite_artifacts!(retry_opts))
+
+    assert read_runtime_data!(runtime_data_path).inline_assets["regular/xmark"].inner_content =~
+             ~s(data-version="NEW")
+
+    File.rmdir!(blocking_artifact_path)
+
+    assert :ok = SvgSpriteExAssets.compile_sprite_artifacts!(retry_opts)
+    assert {:ok, new_asset} = RuntimeData.fetch_inline_asset("regular/xmark")
+    assert new_asset.inner_content =~ ~s(data-version="NEW")
   end
 
   test "compile_sprite_artifacts!/1 rebuilds runtime data when a tracked artifact is missing" do

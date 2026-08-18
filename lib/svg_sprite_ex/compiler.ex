@@ -80,6 +80,7 @@ defmodule SvgSpriteEx.Compiler do
         RuntimeDataWriter.build_runtime_data(inline_sources, inline_svg_infos, sprite_metadata)
 
       runtime_data_result = RuntimeDataWriter.write(runtime_data_path, runtime_data)
+      RuntimeDataWriter.invalidate_cache()
 
       active_artifact_paths =
         active_artifact_paths(sprite_builds, runtime_data_path, runtime_data)
@@ -106,8 +107,6 @@ defmodule SvgSpriteEx.Compiler do
           compile_path,
           compiler_manifest.artifact_paths ++ active_artifact_paths
         )
-
-      RuntimeDataWriter.invalidate_cache()
 
       if Enum.all?(
            [
