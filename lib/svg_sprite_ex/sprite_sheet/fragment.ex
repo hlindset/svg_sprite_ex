@@ -7,6 +7,12 @@ defmodule SvgSpriteEx.SpriteSheet.Fragment do
     decode(target, [])
   end
 
+  @doc false
+  @spec encode(String.t()) :: String.t()
+  def encode(target) when is_binary(target) do
+    URI.encode(target, &URI.char_unreserved?/1)
+  end
+
   defp decode("", output) do
     decoded = output |> Enum.reverse() |> IO.iodata_to_binary()
 
