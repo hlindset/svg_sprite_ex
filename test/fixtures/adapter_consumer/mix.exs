@@ -14,6 +14,7 @@ defmodule AdapterConsumer.MixProject do
       build_path: Path.join(temp_root, "_build"),
       deps_path: Path.join(temp_root, "deps"),
       lockfile: Path.join(temp_root, "mix.lock"),
+      compilers: compilers(mode),
       deps: deps(mode)
     ]
   end
@@ -33,6 +34,12 @@ defmodule AdapterConsumer.MixProject do
   defp adapter_deps("both") do
     [{:phoenix_live_view, "~> 1.0"}, {:hologram, "~> 0.11"}]
   end
+
+  defp compilers(mode) when mode in ["hologram", "both"] do
+    [:svg_sprite_ex_assets] ++ Mix.compilers() ++ [:hologram]
+  end
+
+  defp compilers(_mode), do: [:svg_sprite_ex_assets] ++ Mix.compilers()
 
   defp mode! do
     mode = System.get_env("SVG_SPRITE_EX_ADAPTERS", "none")

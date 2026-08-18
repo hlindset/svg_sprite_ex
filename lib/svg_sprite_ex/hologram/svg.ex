@@ -9,6 +9,12 @@ if Code.ensure_loaded?(Hologram.Component) do
 
     This component is sprite-only and does not accept `SvgSpriteEx.InlineRef`.
     Use `SvgSpriteEx.LiveView.Svg` when inline rendering is required.
+
+    To build the `<use>` href, the component strips exactly one leading slash
+    from `SvgSpriteEx.SpriteRef.sheet_public_path`, when present, and resolves
+    the result through Hologram's asset registry. The registry has no fallback:
+    it raises `Hologram.AssetNotFoundError` when the path is not registered.
+    The component then appends `#` and the ref's sprite ID to the resolved path.
     """
 
     use Hologram.Component

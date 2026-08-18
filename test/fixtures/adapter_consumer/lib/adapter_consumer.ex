@@ -35,4 +35,40 @@ if mode in ["hologram", "both"] do
       """
     end
   end
+
+  defmodule AdapterConsumer.HologramLayout do
+    @moduledoc false
+
+    use Hologram.Component
+
+    @impl Hologram.Component
+    def template do
+      ~HOLO"""
+      <html>
+        <head>
+          <Hologram.UI.Runtime />
+        </head>
+        <body>
+          <slot />
+        </body>
+      </html>
+      """
+    end
+  end
+
+  defmodule AdapterConsumer.HologramPage do
+    @moduledoc false
+
+    use Hologram.Page
+
+    route("/")
+    layout(AdapterConsumer.HologramLayout)
+
+    @impl Hologram.Page
+    def template do
+      ~HOLO"""
+      <AdapterConsumer.Hologram />
+      """
+    end
+  end
 end

@@ -64,9 +64,11 @@ jobs:
           SVG_SPRITE_EX_ADAPTERS: ${{ matrix.adapters }}
       - run: mix compile --warnings-as-errors
         env:
+          HOLOGRAM_START: 1
           MIX_ENV: test
           SVG_SPRITE_EX_ADAPTERS: ${{ matrix.adapters }}
       - run: mix test --no-compile
         env:
+          HOLOGRAM_START: 1
           MIX_ENV: test
           SVG_SPRITE_EX_ADAPTERS: ${{ matrix.adapters }}

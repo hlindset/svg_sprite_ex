@@ -101,16 +101,21 @@ config :svg_sprite_ex,
 
 - `source_root` - absolute path to the directory that contains source svg files.
 - `build_path` - absolute path where the compiler generates sprite sheets.
+  This must be inside the application's `priv/static` directory so the sheets
+  are copied into the built application and available to asset tooling.
 - `public_path` - nondigested public URL prefix for generated sprite sheets.
+  Align it with the static-relative location under `priv/static`; for example,
+  `priv/static/svgs` is served from `/svgs`.
 
 ### Optional configuration
 
 - `default_sheet` - default sprite sheet name when no `sheet` option is
   given. Defaults to `sprites`.
-- `static_path_resolver` - runtime resolver for sprite sheet URLs. This can be
-  a module that exports `static_path/1`, or `{module, function}` /
-  `{module, function, extra_args}`. When omitted, `SvgSpriteEx` renders the
-  configured `public_path` unchanged.
+- `static_path_resolver` - LiveView-only runtime resolver for sprite sheet URLs.
+  This can be a module that exports `static_path/1`, or `{module, function}` /
+  `{module, function, extra_args}`. When omitted, the LiveView component renders
+  the configured `public_path` unchanged. The Hologram component always uses
+  Hologram's asset registry instead.
 
 Given the config above, if your svg file lives at
 `priv/icons/regular/xmark.svg`, the logical svg name is `regular/xmark`.
@@ -152,9 +157,9 @@ When you run `mix compile`, the compiler:
 - writes a runtime data artifact that powers inline svg lookup and metadata APIs
 
 Generated sprite refs carry the sheet public path and sprite id separately. At
-render time, `<.svg>` resolves the public path through `static_path_resolver`
-when configured, so Phoenix digested asset URLs work without changing
-`sprite_ref(...)` call sites.
+LiveView render time, `<.svg>` resolves the public path through
+`static_path_resolver` when configured, so Phoenix digested asset URLs work
+without changing `sprite_ref(...)` call sites.
 
 Your application must serve the generated files from the same public path you
 configured. For example: Write sprite sheets into `priv/static/svgs`, and
@@ -255,6 +260,12 @@ end
 `SvgSpriteEx.Hologram.Svg` accepts `class`, `width`, `height`, `color`, `fill`,
 `stroke`, and `aria_label`. It renders only `%SvgSpriteEx.SpriteRef{}` values;
 Hologram does not accept `%SvgSpriteEx.InlineRef{}`.
+
+For the `<use>` href, the Hologram component strips exactly one leading slash
+from the sprite sheet public path when present, resolves the remaining
+static-relative path through Hologram's asset registry with no fallback, and
+then appends `#sprite_id`. An unregistered asset therefore raises
+`Hologram.AssetNotFoundError`.
 
 ## Runtime metadata
 
