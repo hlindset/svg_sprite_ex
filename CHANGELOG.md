@@ -19,6 +19,10 @@
 - Runtime metadata loading fails fast when it encounters a stale sibling
   `runtime_data.etf` on the code path, identifies its artifact path, and
   requires rebuilding the app or dependency that produced it.
+- Replaced embedded stylesheet parsing with a curated SVG input contract:
+  `<style>` elements are rejected, inline refs preserve `style` attributes, and
+  sprite refs rewrite only canonical literal local `url(...)` fragments in
+  supported presentation and `style` attributes.
 
 ## 0.2.0 - 2026-03-25
 

@@ -101,6 +101,29 @@ Note that `sprite_ref` and `inline_ref` only accept compile-time literal
 values. This is how the compiler discovers which svgs need to be included in
 the generated outputs.
 
+### SVG input contract
+
+Source SVGs may use presentation attributes and `style` attributes. Embedded
+`<style>` elements are not supported for either sprite or inline refs; preprocess
+stylesheets into inline declarations or presentation attributes first, for
+example with SVGO.
+
+Inline refs preserve `style` attributes unchanged. Sprite refs namespace local
+IDs and rewrite local fragments in supported presentation attributes and
+`style` attributes when they use a canonical, literal `url(...)` form:
+
+```css
+fill: url(#paint);
+stroke: URL( '#outline' );
+```
+
+The function name is case-insensitive, the fragment may be quoted or unquoted,
+and ASCII whitespace is preserved. Other URL values, CSS strings, and colors
+are left unchanged. Sprite compilation rejects CSS comments, backslash escapes,
+malformed strings or URL functions, and ambiguous or malformed local fragments
+with an error that identifies the asset. Use a CSS/SVG preprocessing step for
+inputs that need more than this deliberately small contract.
+
 ## How it works
 
 When you run `mix compile`, the compiler:
