@@ -1261,7 +1261,7 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
     case :binary.match(rest, "*/") do
       {index, 2} ->
         comment_size = index + 2
-        <<body::binary-size(comment_size), tail::binary>> = rest
+        <<body::binary-size(^comment_size), tail::binary>> = rest
         {"/*" <> body, tail}
 
       :nomatch ->
