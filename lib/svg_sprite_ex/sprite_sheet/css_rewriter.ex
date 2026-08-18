@@ -717,17 +717,21 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
     Enum.reverse([render_block_buffer(buffer) | output])
   end
 
-  defp rewrite_blocks([:open | tokens], [parent | _] = contexts, buffer, output, id_map) do
-    prelude = block_buffer_tokens(buffer)
-    {rewritten_prelude, child_context} = rewrite_prelude(prelude, parent, id_map)
+  defp rewrite_blocks(
+         [:open | tokens],
+         [:declarations | _parents] = contexts,
+         buffer,
+         output,
+         id_map
+       ) do
+    case custom_property_declaration?(block_buffer_tokens(buffer)) do
+      true -> preserve_custom_property_block(tokens, contexts, buffer, output, id_map)
+      false -> rewrite_open_block(tokens, contexts, buffer, output, id_map)
+    end
+  end
 
-    rewrite_blocks(
-      tokens,
-      [child_context | contexts],
-      [],
-      ["{", render_tokens(rewritten_prelude) | output],
-      id_map
-    )
+  defp rewrite_blocks([:open | tokens], [_parent | _] = contexts, buffer, output, id_map) do
+    rewrite_open_block(tokens, contexts, buffer, output, id_map)
   end
 
   defp rewrite_blocks([:close | tokens], [_context | parents], buffer, output, id_map) do
@@ -754,8 +758,67 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
     rewrite_blocks(tokens, contexts, [text | buffer], output, id_map)
   end
 
+  defp rewrite_open_block(tokens, [parent | _] = contexts, buffer, output, id_map) do
+    prelude = block_buffer_tokens(buffer)
+    {rewritten_prelude, child_context} = rewrite_prelude(prelude, parent, id_map)
+
+    rewrite_blocks(
+      tokens,
+      [child_context | contexts],
+      [],
+      ["{", render_tokens(rewritten_prelude) | output],
+      id_map
+    )
+  end
+
+  defp preserve_custom_property_block(tokens, contexts, buffer, output, id_map) do
+    case take_component_value_block(tokens, 1, ["{"]) do
+      {:ok, block, rest} ->
+        rewrite_blocks(rest, contexts, [[{:raw, block}] | buffer], output, id_map)
+
+      {:unclosed, block} ->
+        rewrite_blocks([], contexts, [[{:raw, block}] | buffer], output, id_map)
+    end
+  end
+
   defp block_buffer_tokens(buffer), do: buffer |> Enum.reverse() |> Enum.concat()
   defp render_block_buffer(buffer), do: buffer |> block_buffer_tokens() |> render_tokens()
+
+  defp custom_property_declaration?(tokens) do
+    case Enum.drop_while(tokens, &css_trivia?/1) do
+      [{:ident, _raw, "--" <> _name} | rest] ->
+        after_name = Enum.drop_while(rest, &css_trivia?/1)
+        match?([{:delim, ":"} | _rest], after_name)
+
+      _other ->
+        false
+    end
+  end
+
+  defp take_component_value_block([], _depth, output) do
+    {:unclosed, output |> Enum.reverse() |> IO.iodata_to_binary()}
+  end
+
+  defp take_component_value_block([:open | tokens], depth, output) do
+    take_component_value_block(tokens, depth + 1, ["{" | output])
+  end
+
+  defp take_component_value_block([:close | tokens], 1, output) do
+    block = ["}" | output] |> Enum.reverse() |> IO.iodata_to_binary()
+    {:ok, block, tokens}
+  end
+
+  defp take_component_value_block([:close | tokens], depth, output) do
+    take_component_value_block(tokens, depth - 1, ["}" | output])
+  end
+
+  defp take_component_value_block([:semicolon | tokens], depth, output) do
+    take_component_value_block(tokens, depth, [";" | output])
+  end
+
+  defp take_component_value_block([{:text, text} | tokens], depth, output) do
+    take_component_value_block(tokens, depth, [render_tokens(text) | output])
+  end
 
   defp rewrite_prelude(prelude, parent_context, id_map) do
     case at_rule_name(prelude) do

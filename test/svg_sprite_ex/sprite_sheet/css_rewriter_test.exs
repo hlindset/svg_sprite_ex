@@ -247,6 +247,22 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriterTest do
 
       assert rewrite(css) == expected
     end
+
+    test "preserves balanced blocks inside custom property values" do
+      css = """
+      #shape { --tokens: #shape {}; color: #shape; }
+      @media (width > 1px) { #shape { --tokens: #shape { nested: #shape; }; color: #shape; } }
+      @keyframes pulse { from { --tokens: #shape {}; color: #shape; } }
+      """
+
+      expected = """
+      #sprite-shape { --tokens: #shape {}; color: #shape; }
+      @media (width > 1px) { #sprite-shape { --tokens: #shape { nested: #shape; }; color: #shape; } }
+      @keyframes pulse { from { --tokens: #shape {}; color: #shape; } }
+      """
+
+      assert rewrite(css) == expected
+    end
   end
 
   defp rewrite(css), do: CSSRewriter.rewrite_stylesheet!(css, @asset_name, @id_map)
