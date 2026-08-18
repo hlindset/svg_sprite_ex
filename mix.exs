@@ -14,10 +14,17 @@ defmodule SvgSpriteEx.MixProject do
       docs: docs(),
       source_url: @source_url,
       homepage_url: @source_url,
-      elixir: "~> 1.17",
+      elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      test_coverage: [tool: ExCoveralls]
+      test_coverage: [tool: ExCoveralls],
+      test_load_filters: [
+        fn path ->
+          String.ends_with?(path, "_test.exs") and
+            not String.starts_with?(path, "test/fixtures/adapter_consumer/")
+        end
+      ],
+      test_ignore_filters: [~r"^test/fixtures/adapter_consumer/"]
     ]
   end
 
@@ -44,7 +51,8 @@ defmodule SvgSpriteEx.MixProject do
   defp deps do
     [
       {:phoenix_html, "~> 4.1"},
-      {:phoenix_live_view, "~> 1.1.0"},
+      {:phoenix_live_view, "~> 1.0", optional: true},
+      {:hologram, "~> 0.11", optional: true},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:floki, "~> 0.38", only: :test},
       {:excoveralls, "~> 0.18", only: :test},
@@ -54,7 +62,7 @@ defmodule SvgSpriteEx.MixProject do
   end
 
   defp description do
-    "Compile-time SVG sprite sheets and inline icon rendering for Phoenix components and LiveView."
+    "Compile-time SVG sprite sheets with optional LiveView and Hologram components."
   end
 
   defp package do
@@ -74,7 +82,13 @@ defmodule SvgSpriteEx.MixProject do
       source_ref: "v#{@version}",
       extras: ["README.md", "CHANGELOG.md"],
       groups_for_modules: [
-        "Primary API": [SvgSpriteEx, SvgSpriteEx.Ref, SvgSpriteEx.Svg],
+        "Primary API": [SvgSpriteEx, SvgSpriteEx.Ref],
+        "Framework Adapters": [
+          SvgSpriteEx.LiveView,
+          SvgSpriteEx.LiveView.Svg,
+          SvgSpriteEx.Hologram,
+          SvgSpriteEx.Hologram.Svg
+        ],
         "Ref Types": [SvgSpriteEx.InlineRef, SvgSpriteEx.SpriteRef],
         "Metadata Types": [
           SvgSpriteEx.InlineSvgMeta,

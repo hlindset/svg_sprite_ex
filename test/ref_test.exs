@@ -43,6 +43,32 @@ defmodule SvgSpriteEx.RefTest do
     assert module.__inline_refs__() == ["regular/xmark"]
   end
 
+  test "sprite-only setup imports sprite refs but not inline refs" do
+    sprite_module = unique_module(:sprite_only)
+
+    compile_module!(
+      sprite_module,
+      ~S|def ref, do: sprite_ref("regular/xmark")|,
+      "use SvgSpriteEx.Ref, only: :sprite"
+    )
+
+    assert %SpriteRef{} = sprite_module.ref()
+    assert sprite_module.__inline_refs__() == []
+
+    diagnostic =
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        assert_raise CompileError, fn ->
+          compile_module!(
+            unique_module(:sprite_only_inline),
+            ~S|def ref, do: inline_ref("regular/xmark")|,
+            "use SvgSpriteEx.Ref, only: :sprite"
+          )
+        end
+      end)
+
+    assert diagnostic =~ ~r/undefined function inline_ref\/1/
+  end
+
   test "sprite_ref tracks the source file as an external resource" do
     module = unique_module(:sprite_with_external_resource)
 
@@ -135,7 +161,7 @@ defmodule SvgSpriteEx.RefTest do
   end
 
   test "sprite_ref raises a compile error outside a module context" do
-    assert_raise CompileError, ~r/must be used inside a module that uses SvgSpriteEx/, fn ->
+    assert_raise CompileError, ~r/must be used inside a module that uses SvgSpriteEx.Ref/, fn ->
       Code.eval_string("""
       require SvgSpriteEx.Ref
       SvgSpriteEx.Ref.sprite_ref("regular/xmark")
@@ -235,7 +261,7 @@ defmodule SvgSpriteEx.RefTest do
     end
   end
 
-  defp compile_module!(module, body) do
+  defp compile_module!(module, body, use_expression \\ "use SvgSpriteEx.Ref") do
     path =
       System.tmp_dir!()
       |> Path.join("svg_sprite_ex_ref_test_#{System.unique_integer([:positive])}.exs")
@@ -245,7 +271,7 @@ defmodule SvgSpriteEx.RefTest do
       path,
       """
       defmodule #{inspect(module)} do
-        use SvgSpriteEx
+        #{use_expression}
 
         #{body}
       end

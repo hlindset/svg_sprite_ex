@@ -1,9 +1,9 @@
 # SvgSpriteEx
 
-`SvgSpriteEx` lets you turn svg files into compile-time svg refs for Phoenix
-components and LiveView.
+`SvgSpriteEx` turns SVG files into compile-time refs with optional Phoenix
+LiveView and Hologram components.
 
-You can render svgs in two ways:
+The LiveView adapter can render SVGs in two ways:
 
 - `ref={sprite_ref("...")}` renders a `<svg><use ... /></svg>` wrapper backed
   by a generated sprite sheet
@@ -11,14 +11,28 @@ You can render svgs in two ways:
 
 ## Installation
 
-Add `svg_sprite_ex` to your dependencies:
+Add `svg_sprite_ex` and the adapters selected by your application to your
+dependencies:
 
 ```elixir
 def deps do
   [
-    {:svg_sprite_ex, "~> 0.2.0"}
+    {:svg_sprite_ex, "~> 0.2.0"},
+    {:phoenix_live_view, "~> 1.0"}, # when using LiveView
+    {:hologram, "~> 0.11"}         # when using Hologram
   ]
 end
+```
+
+SvgSpriteEx requires Elixir 1.19 or later and OTP 28.1 or later. LiveView and
+Hologram are optional: include only the framework dependencies your application
+uses.
+
+After adding or removing `phoenix_live_view` or `hologram`, rebuild SvgSpriteEx
+before compiling your application:
+
+```console
+mix deps.clean svg_sprite_ex --build
 ```
 
 Then register the sprite compiler ahead of the default Mix compilers so it can
@@ -38,6 +52,17 @@ end
 ```
 
 Note that `:svg_sprite_ex_assets` **must** appear before the `:elixir` compiler.
+
+Hologram applications must also keep `:hologram` last so it runs after Elixir
+and the SvgSpriteEx compiler callback:
+
+```elixir
+def project do
+  [
+    compilers: [:svg_sprite_ex_assets] ++ Mix.compilers() ++ [:hologram]
+  ]
+end
+```
 
 When using Phoenix code reloading in development, add `:svg_sprite_ex_assets`
 to `reloadable_compilers`. Phoenix only reruns the compilers listed there
@@ -83,16 +108,21 @@ config :svg_sprite_ex,
 
 - `source_root` - absolute path to the directory that contains source svg files.
 - `build_path` - absolute path where the compiler generates sprite sheets.
+  This must be inside the application's `priv/static` directory so the sheets
+  are copied into the built application and available to asset tooling.
 - `public_path` - nondigested public URL prefix for generated sprite sheets.
+  Align it with the static-relative location under `priv/static`; for example,
+  `priv/static/svgs` is served from `/svgs`.
 
 ### Optional configuration
 
 - `default_sheet` - default sprite sheet name when no `sheet` option is
   given. Defaults to `sprites`.
-- `static_path_resolver` - runtime resolver for sprite sheet URLs. This can be
-  a module that exports `static_path/1`, or `{module, function}` /
-  `{module, function, extra_args}`. When omitted, `SvgSpriteEx` renders the
-  configured `public_path` unchanged.
+- `static_path_resolver` - LiveView-only runtime resolver for sprite sheet URLs.
+  This can be a module that exports `static_path/1`, or `{module, function}` /
+  `{module, function, extra_args}`. When omitted, the LiveView component renders
+  the configured `public_path` unchanged. The Hologram component always uses
+  Hologram's asset registry instead.
 
 Given the config above, if your svg file lives at
 `priv/icons/regular/xmark.svg`, the logical svg name is `regular/xmark`.
@@ -134,36 +164,47 @@ When you run `mix compile`, the compiler:
 - writes a runtime data artifact that powers inline svg lookup and metadata APIs
 
 Generated sprite refs carry the sheet public path and sprite id separately. At
-render time, `<.svg>` resolves the public path through `static_path_resolver`
-when configured, so Phoenix digested asset URLs work without changing
-`sprite_ref(...)` call sites.
+LiveView render time, `<.svg>` resolves the public path through
+`static_path_resolver` when configured, so Phoenix digested asset URLs work
+without changing `sprite_ref(...)` call sites.
 
 Your application must serve the generated files from the same public path you
 configured. For example: Write sprite sheets into `priv/static/svgs`, and
 serve them from `/svgs`.
 
-## Phoenix usage
+## LiveView usage
 
-Use `SvgSpriteEx` in any component, LiveView, or HTML module that renders svgs:
+Use `SvgSpriteEx.LiveView` in any component, LiveView, or HTML module that
+renders SVGs:
 
 ```elixir
 defmodule MyAppWeb.MyComponents do
   use Phoenix.Component
-  use SvgSpriteEx
+  use SvgSpriteEx.LiveView
 end
 ```
 
 This will import:
 
-- the `<.svg>` function component from `SvgSpriteEx.Svg`
+- the `<.svg>` function component from `SvgSpriteEx.LiveView.Svg`
 - the `sprite_ref` and `inline_ref` macros from `SvgSpriteEx.Ref`
+
+If you previously imported the component directly, update the import:
+
+```elixir
+# Before
+import SvgSpriteEx.Svg
+
+# After
+import SvgSpriteEx.LiveView.Svg
+```
 
 ### Render using a sprite sheet
 
 ```elixir
 defmodule MyAppWeb.MyComponents do
   use Phoenix.Component
-  use SvgSpriteEx
+  use SvgSpriteEx.LiveView
 
   def close_icon(assigns) do
     ~H"""
@@ -199,6 +240,39 @@ reference, without doing runtime file reads.
 
 If you construct inline refs manually, use `%SvgSpriteEx.InlineRef{name: "..."}`
 with no `:registry` field.
+
+## Hologram usage
+
+The Hologram adapter provides sprite refs and a sprite-only module component:
+
+```elixir
+defmodule MyApp.Components do
+  use Hologram.Component
+  use SvgSpriteEx.Hologram
+
+  @impl Hologram.Component
+  def template do
+    ~HOLO"""
+    <SvgSpriteEx.Hologram.Svg
+      ref={sprite_ref("regular/search")}
+      class="size-4"
+      color="currentColor"
+      aria_label="Search"
+    />
+    """
+  end
+end
+```
+
+`SvgSpriteEx.Hologram.Svg` accepts `class`, `width`, `height`, `color`, `fill`,
+`stroke`, and `aria_label`. It renders only `%SvgSpriteEx.SpriteRef{}` values;
+Hologram does not accept `%SvgSpriteEx.InlineRef{}`.
+
+For the `<use>` href, the Hologram component strips exactly one leading slash
+from the sprite sheet public path when present, resolves the remaining
+static-relative path through Hologram's asset registry with no fallback, and
+then appends `#sprite_id`. An unregistered asset therefore raises
+`Hologram.AssetNotFoundError`.
 
 ## Runtime metadata
 

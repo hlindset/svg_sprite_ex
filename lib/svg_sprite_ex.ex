@@ -1,15 +1,26 @@
 defmodule SvgSpriteEx do
   @moduledoc """
-  Public entrypoint for SvgSpriteEx in Phoenix component modules.
+  Runtime metadata API for compiled SvgSpriteEx sprite sheets and inline SVGs.
 
-  `use SvgSpriteEx` imports:
+  Use `SvgSpriteEx.Ref` to register refs in framework-neutral modules.
+  `SvgSpriteEx.LiveView` provides ref helpers and the
+  `SvgSpriteEx.LiveView.Svg` function component. `SvgSpriteEx.Hologram`
+  provides sprite refs for the `SvgSpriteEx.Hologram.Svg` module component.
 
-  - the `<.svg>` component from `SvgSpriteEx.Svg`
-  - the `sprite_ref/1`, `sprite_ref/2`, and `inline_ref/1` macros from
-    `SvgSpriteEx.Ref`
+  ## Changing optional framework dependencies
 
-  It also exposes runtime metadata APIs for compiled sprite sheets and inline
-  SVGs.
+  After adding or removing `phoenix_live_view` or `hologram`, rebuild
+  SvgSpriteEx before compiling the application:
+
+      mix deps.clean svg_sprite_ex --build
+
+  ## Framework-neutral refs
+
+      defmodule MyApp.Icons do
+        use SvgSpriteEx.Ref
+
+        def search, do: sprite_ref("regular/search")
+      end
   """
 
   alias SvgSpriteEx.Config
@@ -20,31 +31,6 @@ defmodule SvgSpriteEx do
   alias SvgSpriteEx.Source
   alias SvgSpriteEx.SpriteMeta
   alias SvgSpriteEx.SpriteRef
-
-  @doc ~S'''
-  Imports the SvgSpriteEx component and compile-time ref helpers into the caller.
-
-  ## Examples
-
-  ```elixir
-  defmodule MyAppWeb.IconComponents do
-    use Phoenix.Component
-    use SvgSpriteEx
-
-    def close_icon(assigns) do
-      ~H"""
-      <.svg ref={sprite_ref("regular/xmark")} class="size-4" />
-      """
-    end
-  end
-  ```
-  '''
-  defmacro __using__(_opts) do
-    quote do
-      import SvgSpriteEx.Svg
-      use SvgSpriteEx.Ref
-    end
-  end
 
   @doc """
   Returns metadata for all compiled sprite sheets.

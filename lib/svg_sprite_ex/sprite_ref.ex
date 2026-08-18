@@ -2,8 +2,8 @@ defmodule SvgSpriteEx.SpriteRef do
   @moduledoc """
   Compile-time sprite-backed SVG reference.
 
-  `sprite_ref/1` and `sprite_ref/2` return this struct for the `<.svg>`
-  component.
+  `SvgSpriteEx.Ref.sprite_ref/1` and `SvgSpriteEx.Ref.sprite_ref/2` return this
+  struct for both `SvgSpriteEx.LiveView.Svg` and `SvgSpriteEx.Hologram.Svg`.
 
   `sheet_public_path` is the non-digested public sheet path that the renderer
   resolves at runtime.

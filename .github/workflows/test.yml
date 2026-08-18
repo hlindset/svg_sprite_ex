@@ -12,32 +12,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - elixir: 1.17.3-otp-25
-            erlang: 25
-          - elixir: 1.17.3-otp-26
-            erlang: 26
-          - elixir: 1.17.3-otp-27
-            erlang: 27
-          - elixir: 1.18.4-otp-25
-            erlang: 25
-          - elixir: 1.18.4-otp-26
-            erlang: 26
-          - elixir: 1.18.4-otp-27
-            erlang: 27
-          - elixir: 1.18.4-otp-28
-            erlang: 28
-          - elixir: 1.19.5-otp-26
-            erlang: 26
-          - elixir: 1.19.5-otp-27
-            erlang: 27
           - elixir: 1.19.5-otp-28
-            erlang: 28
-          - elixir: 1.20.0-rc.3-otp-26
-            erlang: 26
-          - elixir: 1.20.0-rc.3-otp-27
-            erlang: 27
-          - elixir: 1.20.0-rc.3-otp-28
-            erlang: 28
+            erlang: "28.1"
+          - elixir: 1.20.0-otp-28
+            erlang: "28.1"
     name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.erlang }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -60,3 +38,37 @@ jobs:
       - run: mix test --no-compile
         env:
           MIX_ENV: test
+
+  adapter-boundaries:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        adapters: [none, live_view, hologram, both]
+    name: Optional adapters (${{ matrix.adapters }})
+    defaults:
+      run:
+        working-directory: test/fixtures/adapter_consumer
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151
+        with:
+          mise_toml: |
+            [tools]
+            erlang = "28.1"
+            elixir = "1.19.5-otp-28"
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      - run: mix deps.get
+        env:
+          SVG_SPRITE_EX_ADAPTERS: ${{ matrix.adapters }}
+      - run: mix compile --warnings-as-errors
+        env:
+          HOLOGRAM_START: 1
+          MIX_ENV: test
+          SVG_SPRITE_EX_ADAPTERS: ${{ matrix.adapters }}
+      - run: mix test --no-compile
+        env:
+          HOLOGRAM_START: 1
+          MIX_ENV: test
+          SVG_SPRITE_EX_ADAPTERS: ${{ matrix.adapters }}

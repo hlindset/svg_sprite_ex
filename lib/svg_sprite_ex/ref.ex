@@ -7,15 +7,44 @@ defmodule SvgSpriteEx.Ref do
 
   The helper functions here also expose the derived sheet paths and normalized
   sheet names used by the compile pipeline.
+
+  Use this module directly when a module only needs to register or return refs:
+
+  ```elixir
+  defmodule MyApp.Icons do
+    use SvgSpriteEx.Ref
+
+    def search, do: sprite_ref("regular/search")
+    def logo, do: inline_ref("brands/logo")
+  end
+  ```
+
+  For rendering, use `SvgSpriteEx.LiveView` or the sprite-only
+  `SvgSpriteEx.Hologram` adapter.
   """
 
   alias SvgSpriteEx.Source
   alias SvgSpriteEx.SpriteRef
 
+  @all_ref_imports [inline_ref: 1, sprite_ref: 1, sprite_ref: 2]
+  @sprite_ref_imports [sprite_ref: 1, sprite_ref: 2]
+
   @doc false
-  defmacro __using__(_opts) do
+  defmacro __using__(opts) do
+    imports =
+      case Keyword.get(opts, :only, :all) do
+        :all ->
+          @all_ref_imports
+
+        :sprite ->
+          @sprite_ref_imports
+
+        other ->
+          raise ArgumentError, "expected :only to be :all or :sprite, got: #{inspect(other)}"
+      end
+
     quote do
-      import unquote(__MODULE__), only: [inline_ref: 1, sprite_ref: 1, sprite_ref: 2]
+      import unquote(__MODULE__), only: unquote(imports)
 
       Module.register_attribute(__MODULE__, :__sprite_refs__, accumulate: true)
       Module.register_attribute(__MODULE__, :__inline_refs__, accumulate: true)
@@ -39,7 +68,7 @@ defmodule SvgSpriteEx.Ref do
   ```elixir
   defmodule MyAppWeb.IconComponents do
     use Phoenix.Component
-    use SvgSpriteEx
+    use SvgSpriteEx.LiveView
 
     def close_icon(assigns) do
       ~H"""
@@ -67,7 +96,7 @@ defmodule SvgSpriteEx.Ref do
   ```elixir
   defmodule MyAppWeb.IconComponents do
     use Phoenix.Component
-    use SvgSpriteEx
+    use SvgSpriteEx.LiveView
 
     def dashboard_icon(assigns) do
       ~H"""
@@ -92,7 +121,7 @@ defmodule SvgSpriteEx.Ref do
   ```elixir
   defmodule MyAppWeb.IconComponents do
     use Phoenix.Component
-    use SvgSpriteEx
+    use SvgSpriteEx.LiveView
 
     def close_icon(assigns) do
       ~H"""
@@ -390,6 +419,6 @@ defmodule SvgSpriteEx.Ref do
       file: caller.file,
       line: caller.line,
       description:
-        "SvgSpriteEx.Ref macros must be used inside a module that uses SvgSpriteEx or SvgSpriteEx.Ref"
+        "SvgSpriteEx.Ref macros must be used inside a module that uses SvgSpriteEx.Ref or a SvgSpriteEx framework adapter"
   end
 end

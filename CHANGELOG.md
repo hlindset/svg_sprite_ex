@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Renamed the LiveView component from `SvgSpriteEx.Svg` to
+  `SvgSpriteEx.LiveView.Svg` and changed LiveView setup from `use SvgSpriteEx`
+  to `use SvgSpriteEx.LiveView`.
+- Made Phoenix LiveView `~> 1.0` and Hologram `~> 0.11` optional dependencies.
+- Added `SvgSpriteEx.Hologram.Svg` as a sprite-only Hologram component; inline
+  rendering remains available only through the LiveView adapter.
+- Raised the minimum supported versions to Elixir 1.19 and OTP 28.1.
+- Kept the package version at `0.2.0` for this unreleased branch.
 - Replaced generated runtime registry modules with a runtime data artifact and
   static loader modules, removing the extra generated-source compile pass.
 - Collects macro refs directly from compiled module exports without persisting
