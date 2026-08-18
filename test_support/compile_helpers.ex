@@ -3,6 +3,8 @@ defmodule Test.Support.CompileHelpers do
   import ExUnit.CaptureIO, only: [capture_io: 1]
 
   def compile_fixture_modules!(manifest_path, source_dir, compile_path) do
+    File.mkdir_p!(compile_path)
+
     {result, output} =
       capture_result(fn ->
         # Note: This intentionally uses Mix's internal compile/7 API for test
