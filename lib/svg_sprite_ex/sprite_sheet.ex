@@ -7,6 +7,7 @@ defmodule SvgSpriteEx.SpriteSheet do
   alias Phoenix.HTML.Safe
   alias SvgSpriteEx.Source
   alias SvgSpriteEx.SpriteSheet.CSSRewriter
+  alias SvgSpriteEx.SpriteSheet.Fragment
 
   Record.defrecordp(
     :xml_attribute,
@@ -383,8 +384,17 @@ defmodule SvgSpriteEx.SpriteSheet do
 
       String.starts_with?(trimmed_value, "#") ->
         target = binary_part(trimmed_value, 1, byte_size(trimmed_value) - 1)
-        rewritten_target = rewrite_reference_target!(target, attr_name, normalized_name, id_map)
-        replace_trimmed_value(value, "##{rewritten_target}")
+
+        case Fragment.decode(target) do
+          {:ok, decoded_target} ->
+            rewritten_target =
+              rewrite_reference_target!(decoded_target, attr_name, normalized_name, id_map)
+
+            replace_trimmed_value(value, "##{rewritten_target}")
+
+          :malformed ->
+            value
+        end
 
       true ->
         value

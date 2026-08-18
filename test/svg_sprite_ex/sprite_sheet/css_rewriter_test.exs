@@ -8,7 +8,9 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriterTest do
     "-1" => "sprite--1",
     "123" => "sprite-123",
     "paint" => "sprite-paint",
+    "café" => "sprite-café",
     "shape" => "sprite-shape",
+    "shape.icon" => "sprite-shape.icon",
     "shape{part" => "sprite-shape{part",
     "shape;part" => "sprite-shape;part",
     "shape[part" => "sprite-shape[part",
@@ -108,6 +110,21 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriterTest do
       css = ~S|a{fill:url("#paint"/**/)}|
 
       assert rewrite(css) == ~S|a{fill:url("#sprite-paint"/**/)}|
+    end
+
+    test "decodes percent-encoded local URL fragments" do
+      css = ~S|a{fill:url(#shape%2Eicon)} b{fill:url("#shape%2eicon")} c{fill:url(#caf%C3%A9)}|
+
+      expected =
+        ~S|a{fill:url(#sprite-shape\.icon)} b{fill:url("#sprite-shape.icon")} c{fill:url(#sprite-café)}|
+
+      assert rewrite(css) == expected
+    end
+
+    test "preserves malformed percent encodings as non-local URL data" do
+      css = ~S|a{fill:url(#paint%2)} b{fill:url("#paint%GG")}|
+
+      assert rewrite(css) == css
     end
   end
 
@@ -219,6 +236,14 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriterTest do
       [xlink |href="#shape"]{x:y}
       [xlink| href="#shape"]{x:y}
       """
+
+      assert rewrite(css) == expected
+    end
+
+    test "decodes percent-encoded href selector fragments" do
+      css = ~S([href="#shape%2Eicon"], [xlink|href='#caf%c3%a9']{color:#fff})
+
+      expected = ~S([href="#sprite-shape.icon"], [xlink|href='#sprite-café']{color:#fff})
 
       assert rewrite(css) == expected
     end

@@ -303,6 +303,29 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert sprite_sheet =~ ~s(xlink:href="##{sprite_id}-shape")
   end
 
+  test "build decodes percent-encoded local href fragments" do
+    svg_source_root = unique_tmp_dir!("percent-encoded-href-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/encoded_links.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="shape.icon" />
+        <use href="#shape%2Eicon" />
+        <use href="#shape%2eicon" />
+        <use href="#shape%2Gicon" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/encoded_links"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/encoded_links", svg_source_root)
+
+    assert count_occurrences(sprite_sheet, ~s(href="##{sprite_id}-shape.icon")) == 2
+    assert sprite_sheet =~ ~s(href="#shape%2Gicon")
+  end
+
   test "build rewrites known ARIA, for, and SMIL timing ID references" do
     svg_source_root = unique_tmp_dir!("idrefs-and-timing")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))

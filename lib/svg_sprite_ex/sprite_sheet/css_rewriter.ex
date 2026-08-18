@@ -1,6 +1,8 @@
 defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
   @moduledoc false
 
+  alias SvgSpriteEx.SpriteSheet.Fragment
+
   @declaration_at_rules ~w(counter-style font-face page property)
   @css_whitespace [9, 10, 12, 13, 32]
   @newline [10, 12, 13]
@@ -566,9 +568,11 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
   defp local_fragment_target(<<"##", _rest::binary>>), do: :not_local
 
   defp local_fragment_target(<<"#", target::binary>>) when target != "" do
-    case contains_unicode_whitespace?(target) do
-      true -> :not_local
-      false -> {:ok, target}
+    with {:ok, decoded_target} <- Fragment.decode(target),
+         false <- contains_unicode_whitespace?(decoded_target) do
+      {:ok, decoded_target}
+    else
+      _malformed_or_whitespace -> :not_local
     end
   end
 
