@@ -126,6 +126,16 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriterTest do
 
       assert rewrite(css) == css
     end
+
+    test "preserves the opaque remainder of an unclosed quoted URL function" do
+      known = ~S|#shape { fill: url("#paint"; other: url(#paint) }|
+      unknown = ~S|#shape { fill: url("#paint"; other: url(#missing) }|
+
+      assert rewrite(known) == ~S|#sprite-shape { fill: url("#paint"; other: url(#paint) }|
+
+      assert rewrite(unknown) ==
+               ~S|#sprite-shape { fill: url("#paint"; other: url(#missing) }|
+    end
   end
 
   describe "rewrite_stylesheet!/3 bad string tokens" do

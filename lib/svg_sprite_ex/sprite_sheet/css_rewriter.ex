@@ -502,7 +502,7 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
         )
 
       :error ->
-        do_rewrite_url_tokens(tokens, [function | output], normalized_name, id_map, source)
+        Enum.reverse(output) ++ [function | tokens]
     end
   end
 
