@@ -362,6 +362,36 @@ defmodule SvgSpriteEx.SpriteSheetTest do
              ~s|end="#{sprite_id}-shape.end-1s; indefinite; wallclock(2026-08-18T12:00:00Z)"|
   end
 
+  test "build rewrites SMIL animation values using the target attribute semantics" do
+    svg_source_root = unique_tmp_dir!("smil-animation-values")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/animated_references.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <linearGradient id="paint" />
+        <filter id="blur" />
+        <path id="shape" />
+        <rect>
+          <animate attributeName="fill" values="url(#paint); none" />
+          <set attributeName="filter" to="url(#blur)" />
+          <animate attributeName="href" to="#shape" />
+        </rect>
+      </svg>
+      """
+    )
+
+    sprite_sheet =
+      SpriteSheet.build(["icons/animated_references"], source_root: svg_source_root)
+
+    sprite_id = Source.sprite_id("icons/animated_references", svg_source_root)
+
+    assert sprite_sheet =~ ~s|values="url(##{sprite_id}-paint); none"|
+    assert sprite_sheet =~ ~s|to="url(##{sprite_id}-blur)"|
+    assert sprite_sheet =~ ~s|attributeName="href" to="##{sprite_id}-shape"|
+  end
+
   test "build rewrites local URLs only in supported SVG attributes" do
     svg_source_root = unique_tmp_dir!("url-contexts")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))

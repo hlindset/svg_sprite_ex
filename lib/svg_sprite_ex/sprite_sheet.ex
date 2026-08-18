@@ -38,6 +38,14 @@ defmodule SvgSpriteEx.SpriteSheet do
                       ])
 
   @smil_timing_attrs MapSet.new(["begin", "end"])
+  @smil_animation_elements MapSet.new([
+                             "animate",
+                             "animateColor",
+                             "animateMotion",
+                             "animateTransform",
+                             "set"
+                           ])
+  @smil_animation_value_attrs MapSet.new(["by", "from", "to", "values"])
 
   @url_reference_attrs MapSet.new([
                          "clip-path",
@@ -226,10 +234,7 @@ defmodule SvgSpriteEx.SpriteSheet do
         rewrite_style_node!(node, normalized_name, id_map)
 
       xml_element_node?(node) ->
-        updated_attributes =
-          node
-          |> xml_element(:attributes)
-          |> Enum.map(&rewrite_attribute!(&1, normalized_name, id_map))
+        updated_attributes = rewrite_element_attributes!(node, normalized_name, id_map)
 
         updated_content =
           node
@@ -249,11 +254,89 @@ defmodule SvgSpriteEx.SpriteSheet do
 
     rewritten_value = rewrite_attribute_value!(name, value, normalized_name, id_map)
 
-    if rewritten_value == value do
-      attribute
-    else
-      xml_attribute(attribute, value: String.to_charlist(rewritten_value))
+    update_attribute_value(attribute, value, rewritten_value)
+  end
+
+  defp rewrite_element_attributes!(node, normalized_name, id_map) do
+    attributes = xml_element(node, :attributes)
+    animation_target = smil_animation_target(node, attributes)
+
+    Enum.map(
+      attributes,
+      &rewrite_element_attribute!(&1, animation_target, normalized_name, id_map)
+    )
+  end
+
+  defp rewrite_element_attribute!(attribute, nil, normalized_name, id_map) do
+    rewrite_attribute!(attribute, normalized_name, id_map)
+  end
+
+  defp rewrite_element_attribute!(attribute, animation_target, normalized_name, id_map) do
+    name = attribute_name(attribute)
+    value = attribute_value(attribute)
+
+    rewritten_value =
+      case MapSet.member?(@smil_animation_value_attrs, name) do
+        true ->
+          rewrite_smil_animation_value!(name, value, animation_target, normalized_name, id_map)
+
+        false ->
+          rewrite_attribute_value!(name, value, normalized_name, id_map)
+      end
+
+    update_attribute_value(attribute, value, rewritten_value)
+  end
+
+  defp update_attribute_value(attribute, value, rewritten_value) do
+    case rewritten_value == value do
+      true -> attribute
+      false -> xml_attribute(attribute, value: String.to_charlist(rewritten_value))
     end
+  end
+
+  defp smil_animation_target(node, attributes) do
+    element_name = node |> xml_element(:name) |> Atom.to_string()
+    animation_element? = MapSet.member?(@smil_animation_elements, element_name)
+
+    resolve_smil_animation_target(animation_element?, attributes)
+  end
+
+  defp resolve_smil_animation_target(false, _attributes), do: nil
+
+  defp resolve_smil_animation_target(true, attributes) do
+    attribute_values = Map.new(attributes, &{attribute_name(&1), attribute_value(&1)})
+
+    normalize_smil_animation_target(
+      attribute_values["attributeName"],
+      attribute_values["attributeType"]
+    )
+  end
+
+  defp normalize_smil_animation_target(nil, _attribute_type), do: nil
+
+  defp normalize_smil_animation_target(attribute_name, attribute_type) do
+    attribute_name
+    |> String.trim()
+    |> normalize_smil_animation_target_type(attribute_type)
+  end
+
+  defp normalize_smil_animation_target_type("", _attribute_type), do: nil
+
+  defp normalize_smil_animation_target_type(attribute_name, attribute_type) do
+    case attribute_type |> to_string() |> String.trim() |> String.downcase() do
+      "css" -> String.downcase(attribute_name)
+      _other -> attribute_name
+    end
+  end
+
+  defp rewrite_smil_animation_value!("values", value, target, normalized_name, id_map) do
+    value
+    |> String.split(";", trim: false)
+    |> Enum.map_join(";", &rewrite_attribute_value!(target, &1, normalized_name, id_map))
+  end
+
+  defp rewrite_smil_animation_value!(_name, value, target, normalized_name, id_map) do
+    rewrite_attribute_value!(target, value, normalized_name, id_map)
   end
 
   defp rewrite_attribute_value!(name, value, normalized_name, id_map) do
