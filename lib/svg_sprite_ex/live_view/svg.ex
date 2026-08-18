@@ -1,4 +1,12 @@
-if Code.ensure_loaded?(Phoenix.Component) do
+defmodule SvgSpriteEx.OptionalDependencies.LocalPath.LiveViewSvg do
+  @moduledoc false
+
+  require SvgSpriteEx.OptionalDependencies
+  SvgSpriteEx.OptionalDependencies.track_local_dependency(:phoenix_live_view)
+end
+
+if :phoenix_live_view in Mix.Project.deps_apps() and
+     Code.ensure_loaded?(Phoenix.Component) do
   defmodule SvgSpriteEx.LiveView.Svg do
     @moduledoc """
     LiveView component for compiled sprite and inline SVG refs.

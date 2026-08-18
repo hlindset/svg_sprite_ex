@@ -72,3 +72,99 @@ jobs:
           HOLOGRAM_START: 1
           MIX_ENV: test
           SVG_SPRITE_EX_ADAPTERS: ${{ matrix.adapters }}
+
+  adapter-local-path-transitions:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [none, live_view, hologram]
+    name: Local path adapter transition (both -> ${{ matrix.target }})
+    defaults:
+      run:
+        working-directory: test/fixtures/adapter_consumer
+    env:
+      HOLOGRAM_START: 1
+      MIX_ENV: test
+      SVG_SPRITE_EX_ADAPTER_BUILD_SCOPE: local-path-transition-${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151
+        with:
+          mise_toml: |
+            [tools]
+            erlang = "28.1"
+            elixir = "1.20.0-otp-28"
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      - run: mix deps.get
+        env:
+          SVG_SPRITE_EX_ADAPTERS: both
+      - run: mix compile --warnings-as-errors
+        env:
+          SVG_SPRITE_EX_ADAPTERS: both
+      - run: mix compile --warnings-as-errors
+        env:
+          SVG_SPRITE_EX_ADAPTERS: ${{ matrix.target }}
+      - run: mix test --no-compile
+        env:
+          SVG_SPRITE_EX_ADAPTERS: ${{ matrix.target }}
+
+  adapter-fetchable-transitions:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        elixir: [1.19.5-otp-28, 1.20.0-otp-28]
+        transition:
+          - from: both
+            to: none
+            no_clean_expected: both
+          - from: none
+            to: both
+            no_clean_expected: none
+    name: Fetchable adapter transition (${{ matrix.elixir }}, ${{ matrix.transition.from }} -> ${{ matrix.transition.to }})
+    defaults:
+      run:
+        working-directory: test/fixtures/adapter_consumer
+    env:
+      SVG_SPRITE_EX_ADAPTER_BUILD_SCOPE: fetchable-${{ matrix.elixir }}-${{ matrix.transition.from }}-${{ matrix.transition.to }}
+      SVG_SPRITE_EX_ADAPTER_DEPENDENCY_SOURCE: git
+      SVG_SPRITE_EX_ADAPTER_GIT_REF: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151
+        with:
+          mise_toml: |
+            [tools]
+            erlang = "28.1"
+            elixir = "${{ matrix.elixir }}"
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      - run: elixir verify_fetchable_transition.exs ${{ matrix.transition.from }} ${{ matrix.transition.to }} ${{ matrix.transition.no_clean_expected }}
+
+  adapter-transitive:
+    runs-on: ubuntu-latest
+    name: Optional adapters (transitive both)
+    defaults:
+      run:
+        working-directory: test/fixtures/adapter_consumer
+    env:
+      HOLOGRAM_START: 1
+      MIX_ENV: test
+      SVG_SPRITE_EX_ADAPTERS: both
+      SVG_SPRITE_EX_ADAPTER_BUILD_SCOPE: transitive-both
+      SVG_SPRITE_EX_ADAPTER_DEPENDENCY_STYLE: transitive
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151
+        with:
+          mise_toml: |
+            [tools]
+            erlang = "28.1"
+            elixir = "1.19.5-otp-28"
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix test --no-compile

@@ -28,6 +28,19 @@ SvgSpriteEx requires Elixir 1.19 or later and OTP 28.1 or later. LiveView and
 Hologram are optional: include only the framework dependencies your application
 uses.
 
+The adapter modules are compiled from the dependency graph that is active when
+SvgSpriteEx is built. After adding or removing `phoenix_live_view` or `hologram`,
+run this command before compiling your application:
+
+```console
+mix deps.clean svg_sprite_ex --build
+```
+
+This rebuild is required for Hex and Git dependencies because Mix can skip an
+already-built fetchable dependency before its compiler callbacks run. Local path
+dependencies are revisited by Mix and support no-clean transitions during local
+development.
+
 Then register the sprite compiler ahead of the default Mix compilers so it can
 install its Elixir compile callback and collect `sprite_ref/1`, `sprite_ref/2`,
 and `inline_ref/1` usages after module compilation.

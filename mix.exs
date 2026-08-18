@@ -24,7 +24,10 @@ defmodule SvgSpriteEx.MixProject do
             not String.starts_with?(path, "test/fixtures/adapter_consumer/")
         end
       ],
-      test_ignore_filters: [~r"^test/fixtures/adapter_consumer/"]
+      test_ignore_filters: [
+        ~r"^test/fixtures/adapter_consumer/",
+        ~r"^test/fixtures/adapter_frameworks/"
+      ]
     ]
   end
 

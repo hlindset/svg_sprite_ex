@@ -7,6 +7,18 @@ defmodule SvgSpriteEx do
   `SvgSpriteEx.LiveView.Svg` function component. `SvgSpriteEx.Hologram`
   provides sprite refs for the `SvgSpriteEx.Hologram.Svg` module component.
 
+  ## Changing optional framework dependencies
+
+  Adapter modules reflect the dependency graph that was active when SvgSpriteEx
+  was built. After adding or removing `phoenix_live_view` or `hologram`, rebuild
+  a Hex or Git dependency before compiling the application:
+
+      mix deps.clean svg_sprite_ex --build
+
+  Mix may skip an already-built fetchable dependency before its compiler
+  callbacks run. Local path dependencies are revisited and support no-clean
+  transitions during local development.
+
   ## Framework-neutral refs
 
       defmodule MyApp.Icons do
