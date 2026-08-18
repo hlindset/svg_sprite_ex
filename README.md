@@ -56,12 +56,15 @@ Adjust the list to match the compilers used in your project.
 - `%SvgSpriteEx.InlineRef{}` is now a one-field struct with only `:name`.
   Code that manually constructs or pattern matches on the old `:registry` field
   must be updated.
-- Upgrading from older runtime data formats requires a clean rebuild. Run
-  `mix clean && mix compile`, or delete the app's `.mix/svg_sprite_ex` compiler
-  state directory before recompiling.
+- `%SvgSpriteEx.SpriteRef{}` and `%SvgSpriteEx.SpriteMeta{}` no longer expose
+  `:href`. Use `:sheet_public_path` and `:sprite_id` instead. Renderers resolve
+  the sheet public path at render time, then combine it with the sprite id.
+- The compiler automatically migrates the legacy manifest and removes obsolete
+  generated artifacts during the next `mix compile`; routine upgrades do not
+  require `mix clean`.
 - When multiple apps share the same code path, an incompatible sibling
-  `runtime_data.etf` raises with the artifact path. Rebuild every app or
-  dependency that produced stale runtime data.
+  `runtime_data.etf` fails fast with that artifact's path. Rebuild the app or
+  dependency that produced the named stale artifact.
 
 ## Configuration
 
@@ -195,9 +198,9 @@ SvgSpriteEx.inline_svg("regular/xmark")
 #=> %SvgSpriteEx.InlineSvgMeta{...}
 ```
 
-In umbrella or multi-app code paths, runtime metadata APIs skip stale
-`runtime_data.etf` files from sibling apps until those apps rebuild with the
-current schema.
+In umbrella or multi-app code paths, runtime metadata APIs fail fast when a
+sibling `runtime_data.etf` uses an older schema. The error identifies the stale
+artifact; rebuild the app or dependency that produced it before retrying.
 
 ## Patterns
 

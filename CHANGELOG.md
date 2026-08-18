@@ -11,8 +11,14 @@
   silently reusing them.
 - Changed `%SvgSpriteEx.InlineRef{}` to a one-field struct containing only
   `:name`.
+- Removed `:href` from `%SvgSpriteEx.SpriteRef{}` and
+  `%SvgSpriteEx.SpriteMeta{}`. Refs now carry `:sheet_public_path` and
+  `:sprite_id`, which renderers resolve at render time.
+- Automatically migrates the legacy compiler manifest and removes obsolete
+  generated artifacts during normal `mix compile` upgrades.
 - Runtime metadata loading fails fast when it encounters a stale sibling
-  `runtime_data.etf` on the code path and identifies the artifact to rebuild.
+  `runtime_data.etf` on the code path, identifies its artifact path, and
+  requires rebuilding the app or dependency that produced it.
 
 ## 0.2.0 - 2026-03-25
 
