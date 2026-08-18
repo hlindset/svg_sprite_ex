@@ -1065,6 +1065,66 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     assert first_digest == tracked_input_digest(compiler_manifest_path)
   end
 
+  test "compile_sprite_artifacts!/1 preserves active artifacts across equivalent path spellings on rebuild" do
+    source_dir = unique_tmp_dir!("source-dir")
+    compile_path = unique_tmp_dir!("compile-path")
+    artifact_root = unique_project_tmp_dir!("canonical-artifacts")
+    absolute_build_path = Path.join(artifact_root, "sprites")
+    manifest_path = elixir_manifest_path!(source_dir)
+    compiler_manifest_path = compiler_manifest_path(manifest_path)
+    absolute_runtime_data_path = Path.join(artifact_root, "runtime_data.etf")
+
+    relative_build_path = Path.relative_to(absolute_build_path, File.cwd!())
+    relative_runtime_data_path = Path.relative_to(absolute_runtime_data_path, File.cwd!())
+
+    write_sprite_fixture_module!(source_dir, unique_module(:canonical_artifact_sprite_fixture),
+      sheet: "alerts"
+    )
+
+    write_inline_fixture_module!(source_dir, unique_module(:canonical_artifact_inline_fixture),
+      name: "regular/xmark"
+    )
+
+    assert :ok = compile_fixture_modules!(manifest_path, source_dir, compile_path)
+
+    common_opts = [
+      compile_path: compile_path,
+      compiler_state_path: compiler_state_path(manifest_path),
+      compiler_manifest_path: compiler_manifest_path,
+      elixir_manifest_path: manifest_path,
+      public_path: Config.public_path!(),
+      source_root: Config.source_root!()
+    ]
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               common_opts ++
+                 [
+                   runtime_data_path: relative_runtime_data_path,
+                   compiler_fingerprint: "fingerprint-v1",
+                   build_path: relative_build_path
+                 ]
+             )
+
+    assert :ok =
+             SvgSpriteExAssets.compile_sprite_artifacts!(
+               common_opts ++
+                 [
+                   runtime_data_path: absolute_runtime_data_path,
+                   compiler_fingerprint: "fingerprint-v2",
+                   build_path: absolute_build_path
+                 ]
+             )
+
+    absolute_sheet_path = Ref.sheet_build_path("alerts", absolute_build_path)
+
+    assert File.exists?(absolute_sheet_path)
+    assert File.exists?(absolute_runtime_data_path)
+
+    assert compiler_manifest_path |> tracked_artifact_paths() |> Enum.sort() ==
+             Enum.sort([absolute_sheet_path, absolute_runtime_data_path])
+  end
+
   test "compile_sprite_artifacts!/1 noops when the manifest-backed refs are unchanged" do
     source_dir = unique_tmp_dir!("source-dir")
     compile_path = unique_tmp_dir!("compile-path")
@@ -1313,6 +1373,17 @@ defmodule Mix.Tasks.Compile.SvgSpriteExAssetsTest do
     path =
       System.tmp_dir!()
       |> Path.join("svg_sprite_ex_test_#{suffix}_#{System.unique_integer([:positive])}")
+      |> Path.expand()
+
+    File.mkdir_p!(path)
+    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(path) end)
+    path
+  end
+
+  defp unique_project_tmp_dir!(suffix) do
+    path =
+      File.cwd!()
+      |> Path.join("tmp/svg_sprite_ex_test_#{suffix}_#{System.unique_integer([:positive])}")
       |> Path.expand()
 
     File.mkdir_p!(path)

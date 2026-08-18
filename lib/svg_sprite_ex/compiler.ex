@@ -84,10 +84,12 @@ defmodule SvgSpriteEx.Compiler do
       active_artifact_paths =
         active_artifact_paths(sprite_builds, runtime_data_path, runtime_data)
 
+      active_artifact_path_set = MapSet.new(active_artifact_paths)
+
       manifest_cleanup_result =
         compiler_manifest
         |> Map.fetch!(:artifact_paths)
-        |> Enum.reject(&(&1 in active_artifact_paths))
+        |> Enum.reject(&MapSet.member?(active_artifact_path_set, Path.expand(&1)))
         |> FileOps.cleanup_artifact_paths()
 
       manifest_write_result =
@@ -248,6 +250,7 @@ defmodule SvgSpriteEx.Compiler do
 
   defp active_artifact_paths(sprite_builds, runtime_data_path, runtime_data) do
     (Map.keys(sprite_builds) ++ RuntimeDataWriter.artifact_paths(runtime_data_path, runtime_data))
+    |> Enum.map(&Path.expand/1)
     |> Enum.uniq()
     |> Enum.sort()
   end
