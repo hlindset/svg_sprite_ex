@@ -64,6 +64,8 @@ defmodule SvgSpriteEx.SpriteSheet do
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.map(&Source.read!(&1, source_root))
+    |> Enum.uniq_by(& &1.name)
+    |> ensure_unique_sprite_ids!()
     |> Enum.map(&build_symbol!/1)
     |> wrap_sprite_sheet()
   end
@@ -113,6 +115,30 @@ defmodule SvgSpriteEx.SpriteSheet do
       Enum.join(symbols, "\n"),
       "\n</svg>\n"
     ])
+  end
+
+  defp ensure_unique_sprite_ids!(sources) do
+    collisions =
+      sources
+      |> Enum.group_by(&Source.sprite_id_from_normalized(&1.name))
+      |> Enum.filter(fn {_sprite_id, sprite_sources} -> length(sprite_sources) > 1 end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    case collisions do
+      [] ->
+        sources
+
+      _collisions ->
+        details =
+          Enum.map_join(collisions, "; ", fn {sprite_id, sprite_sources} ->
+            file_paths =
+              sprite_sources |> Enum.map(& &1.file_path) |> Enum.sort() |> Enum.join(", ")
+
+            "#{sprite_id}: #{file_paths}"
+          end)
+
+        raise ArgumentError, "sprite ID collisions detected: #{details}"
+    end
   end
 
   defp build_local_id_map(attributes, content_nodes, sprite_id) do

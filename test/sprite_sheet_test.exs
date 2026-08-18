@@ -88,6 +88,41 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     refute sprite_sheet =~ ~r/<symbol[^>]* xmlns=/
   end
 
+  test "build raises for colliding generated sprite IDs before constructing symbols" do
+    svg_source_root = unique_tmp_dir!("sprite-id-collision")
+    first_name = "I owe Bob 14304.55 Euros. Alice."
+    second_name = "I owe Bob 3632210 Euros. Alice."
+    first_path = Path.join(svg_source_root, first_name <> ".svg")
+    second_path = Path.join(svg_source_root, second_name <> ".svg")
+
+    File.write!(first_path, "<svg viewBox=\"0 0 24 24\" />")
+    File.write!(second_path, "<svg viewBox=\"0 0 24 24\" />")
+
+    assert_raise ArgumentError,
+                 "sprite ID collisions detected: icon-c7dee1bb8675: #{first_path}, #{second_path}",
+                 fn ->
+                   SpriteSheet.build([second_name, first_name], source_root: svg_source_root)
+                 end
+  end
+
+  test "build de-duplicates slash, backslash, and surrounding-whitespace source aliases" do
+    svg_source_root = unique_tmp_dir!("normalized-source-aliases")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/alpha.svg"),
+      "<svg viewBox=\"0 0 24 24\" />"
+    )
+
+    sprite_sheet =
+      SpriteSheet.build([" icons/alpha ", "icons\\alpha", "icons/alpha"],
+        source_root: svg_source_root
+      )
+
+    assert count_occurrences(sprite_sheet, "<symbol id=") == 1
+    assert sprite_sheet =~ ~s(<symbol id="#{Source.sprite_id("icons/alpha", svg_source_root)}")
+  end
+
   test "build derives a viewBox from width and height when missing" do
     svg_source_root = unique_tmp_dir!("derived-viewbox")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))
