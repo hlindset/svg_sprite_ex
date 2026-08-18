@@ -4,6 +4,7 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
   alias SvgSpriteEx.SpriteSheet.Fragment
 
   @declaration_at_rules ~w(counter-style font-face page property)
+  @forgiving_selector_functions ~w(is where)
   @css_whitespace [9, 10, 12, 13, 32]
   @newline [10, 12, 13]
 
@@ -906,6 +907,26 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
     end
   end
 
+  defp malformed_selector_tokens?([
+         {:delim, ":"},
+         {:function, _raw, decoded} = function | tokens
+       ]) do
+    case forgiving_selector_function?(decoded) do
+      true ->
+        case take_parenthesized_tokens(tokens, 1, []) do
+          {:ok, _inner, _closing, rest} -> malformed_selector_tokens?(rest)
+          :error -> true
+        end
+
+      false ->
+        malformed_selector_tokens?([function | tokens])
+    end
+  end
+
+  defp malformed_selector_tokens?([{:function, _raw, _decoded} | tokens]) do
+    malformed_selector_tokens?(tokens)
+  end
+
   defp malformed_selector_tokens?([{:delim, "#"} | tokens]) do
     case Enum.drop_while(tokens, &comment_token?/1) do
       [{:hash, _raw, _decoded, _flag} | _tokens] -> true
@@ -922,6 +943,25 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
   defp malformed_selector_tokens?([]), do: false
 
   defp do_rewrite_selector_tokens([], output, _id_map), do: Enum.reverse(output)
+
+  defp do_rewrite_selector_tokens(
+         [{:delim, ":"} = colon, {:function, _raw, decoded} = function | tokens],
+         output,
+         id_map
+       ) do
+    case forgiving_selector_function?(decoded) do
+      true -> rewrite_forgiving_selector_function(function, tokens, [colon | output], id_map)
+      false -> do_rewrite_selector_tokens(tokens, [function, colon | output], id_map)
+    end
+  end
+
+  defp do_rewrite_selector_tokens(
+         [{:function, _raw, _decoded} = function | tokens],
+         output,
+         id_map
+       ) do
+    do_rewrite_selector_tokens(tokens, [function | output], id_map)
+  end
 
   defp do_rewrite_selector_tokens([{:delim, "["} = opening | tokens], output, id_map) do
     case take_bracketed_tokens(tokens, 1, []) do
@@ -945,6 +985,122 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriter do
 
   defp do_rewrite_selector_tokens([token | tokens], output, id_map) do
     do_rewrite_selector_tokens(tokens, [token | output], id_map)
+  end
+
+  defp forgiving_selector_function?(decoded) do
+    String.downcase(decoded) in @forgiving_selector_functions
+  end
+
+  defp rewrite_forgiving_selector_function(function, tokens, output, id_map) do
+    case take_parenthesized_tokens(tokens, 1, []) do
+      {:ok, inner, closing, rest} ->
+        rewritten = [function, rewrite_forgiving_selector_list(inner, id_map), closing]
+        do_rewrite_selector_tokens(rest, prepend_tokens(rewritten, output), id_map)
+
+      :error ->
+        Enum.reverse(output) ++ [function | tokens]
+    end
+  end
+
+  defp rewrite_forgiving_selector_list(tokens, id_map) do
+    tokens
+    |> split_forgiving_selector_arms(0, 0, [], [])
+    |> Enum.flat_map(fn
+      {:arm, arm} -> rewrite_selector_tokens(arm, id_map)
+      {:separator, separator} -> [separator]
+    end)
+  end
+
+  defp split_forgiving_selector_arms([], _parentheses, _brackets, arm, parts) do
+    Enum.reverse([{:arm, Enum.reverse(arm)} | parts])
+  end
+
+  defp split_forgiving_selector_arms(
+         [{:function, _raw, _decoded} = token | tokens],
+         parentheses,
+         brackets,
+         arm,
+         parts
+       ) do
+    split_forgiving_selector_arms(tokens, parentheses + 1, brackets, [token | arm], parts)
+  end
+
+  defp split_forgiving_selector_arms(
+         [{:delim, "("} = token | tokens],
+         parentheses,
+         brackets,
+         arm,
+         parts
+       ) do
+    split_forgiving_selector_arms(tokens, parentheses + 1, brackets, [token | arm], parts)
+  end
+
+  defp split_forgiving_selector_arms(
+         [{:delim, ")"} = token | tokens],
+         parentheses,
+         brackets,
+         arm,
+         parts
+       ) do
+    split_forgiving_selector_arms(
+      tokens,
+      max(parentheses - 1, 0),
+      brackets,
+      [token | arm],
+      parts
+    )
+  end
+
+  defp split_forgiving_selector_arms(
+         [{:delim, "["} = token | tokens],
+         parentheses,
+         brackets,
+         arm,
+         parts
+       ) do
+    split_forgiving_selector_arms(tokens, parentheses, brackets + 1, [token | arm], parts)
+  end
+
+  defp split_forgiving_selector_arms(
+         [{:delim, "]"} = token | tokens],
+         parentheses,
+         brackets,
+         arm,
+         parts
+       ) do
+    split_forgiving_selector_arms(
+      tokens,
+      parentheses,
+      max(brackets - 1, 0),
+      [token | arm],
+      parts
+    )
+  end
+
+  defp split_forgiving_selector_arms(
+         [{:delim, ","} = separator | tokens],
+         0,
+         0,
+         arm,
+         parts
+       ) do
+    split_forgiving_selector_arms(
+      tokens,
+      0,
+      0,
+      [],
+      [{:separator, separator}, {:arm, Enum.reverse(arm)} | parts]
+    )
+  end
+
+  defp split_forgiving_selector_arms(
+         [token | tokens],
+         parentheses,
+         brackets,
+         arm,
+         parts
+       ) do
+    split_forgiving_selector_arms(tokens, parentheses, brackets, [token | arm], parts)
   end
 
   defp rewrite_known_selector_id(token, identifier, id_map) do

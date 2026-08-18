@@ -215,6 +215,24 @@ defmodule SvgSpriteEx.SpriteSheet.CSSRewriterTest do
       assert rewrite(invalid_escape) == invalid_escape
     end
 
+    test "rewrites valid arms in forgiving selector lists" do
+      css = """
+      :is(##bad #shape, #shape){color:#fff}
+      :where(#shape, ##bad #shape){color:#fff}
+      ##bad, #shape{color:#fff}
+      is(##bad) #shape{color:#fff}
+      """
+
+      expected = """
+      :is(##bad #shape, #sprite-shape){color:#fff}
+      :where(#sprite-shape, ##bad #shape){color:#fff}
+      ##bad, #shape{color:#fff}
+      is(##bad) #shape{color:#fff}
+      """
+
+      assert rewrite(css) == expected
+    end
+
     test "rewrites only hash tokens with the CSS id flag" do
       css = ~S|#123{color:#fff} #-1{color:#fff} #\31 23{color:#fff} #\-1{color:#fff}|
 
