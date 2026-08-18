@@ -46,6 +46,8 @@ defmodule SvgSpriteEx.Source do
     %{attributes: attributes, inner_content: inner_content, content_nodes: content_nodes} =
       parse_svg_file!(file_path)
 
+    reject_style_elements!(content_nodes, normalized_name)
+
     %__MODULE__{
       name: normalized_name,
       file_path: file_path,
@@ -216,6 +218,34 @@ defmodule SvgSpriteEx.Source do
     |> String.trim()
   end
 
+  defp reject_style_elements!(nodes, normalized_name) do
+    Enum.each(nodes, &reject_style_element!(&1, normalized_name))
+  end
+
+  defp reject_style_element!(node, normalized_name) do
+    case xml_element_node?(node) do
+      true ->
+        reject_style_element_name!(xml_element(node, :name), normalized_name)
+        reject_style_elements!(xml_element(node, :content), normalized_name)
+
+      false ->
+        :ok
+    end
+  end
+
+  defp reject_style_element_name!(name, normalized_name) do
+    case name |> Atom.to_string() |> String.split(":") |> List.last() do
+      "style" ->
+        raise ArgumentError,
+              "svg asset #{inspect(normalized_name)} contains an unsupported <style> element; " <>
+                "preprocess embedded styles into inline declarations or presentation attributes " <>
+                "before compilation (for example with SVGO)"
+
+      _other ->
+        :ok
+    end
+  end
+
   defp attribute_name(attribute) do
     attribute
     |> xml_attribute(:name)
@@ -226,6 +256,10 @@ defmodule SvgSpriteEx.Source do
     attribute
     |> xml_attribute(:value)
     |> Xmerl.characters_to_binary()
+  end
+
+  defp xml_element_node?(node) do
+    is_tuple(node) and tuple_size(node) > 0 and elem(node, 0) == :xmlElement
   end
 
   defp safe_name!(name, source_root, original_name) do

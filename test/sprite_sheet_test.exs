@@ -372,7 +372,7 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert String.valid?(sprite_sheet)
   end
 
-  test "build converts Unicode style, attribute, and text content to UTF-8" do
+  test "build converts Unicode attribute and text content to UTF-8" do
     svg_source_root = unique_tmp_dir!("unicode-content")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))
 
@@ -380,7 +380,6 @@ defmodule SvgSpriteEx.SpriteSheetTest do
       Path.join(svg_source_root, "icons/unicode_content.svg"),
       """
       <svg viewBox="0 0 24 24" data-label="caf&#xE9;">
-        <style>#shape::after { content: "caf&#xE9;"; }</style>
         <path id="shape" aria-label="caf&#xE9;">snow &#x2603;</path>
       </svg>
       """
@@ -390,7 +389,7 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     sprite_id = Source.sprite_id("icons/unicode_content", svg_source_root)
 
     assert sprite_sheet =~ ~s(data-label="café")
-    assert sprite_sheet =~ ~s(##{sprite_id}-shape::after { content: "café"; })
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-shape")
     assert sprite_sheet =~ ~s(aria-label="café">snow ☃</path>)
     assert String.valid?(sprite_sheet)
   end
@@ -512,73 +511,23 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert sprite_sheet =~ ~s|data-reference="URL(#missing)"|
   end
 
-  test "build rewrites CSS references according to lexical context" do
-    svg_source_root = unique_tmp_dir!("css-reference-contexts")
+  test "build rejects embedded style elements" do
+    svg_source_root = unique_tmp_dir!("embedded-style")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))
 
     File.write!(
-      Path.join(svg_source_root, "icons/css_references.svg"),
+      Path.join(svg_source_root, "icons/styled.svg"),
       """
       <svg viewBox="0 0 24 24">
-        <linearGradient id="paint" />
-        <filter id="blur" />
-        <path id="shape.icon" />
-        <path id="fff" />
-        <style>
-          /* URL(#paint) and #shape\\.icon stay literal */
-          #shape\\.icon::before {
-            content: "URL(#paint) and #shape\\.icon";
-            fill: URL(#paint);
-          }
-          [href="#shape.icon"], [xlink\\:href='#shape.icon'] { filter: url('#blur'); }
-          [data-reference="#shape.icon"] { color: #fff; }
-          .group {
-            #shape\\.icon { stroke: url(#paint); }
-          }
-          @scope (#shape\\.icon) to (#fff) {
-            [href="#shape.icon"] { fill: url(#paint); }
-          }
-          @supports selector([xlink\\:href='#shape.icon']) {
-            #shape\\.icon { filter: URL(#blur); }
-          }
-          @keyframes pulse {
-            from { color: #fff; }
-            to { color: #fff; }
-          }
-          #fff { fill: #fff; }
-        </style>
+        <style>.cls-1 { fill: red }</style>
+        <path class="cls-1" />
       </svg>
       """
     )
 
-    sprite_sheet = SpriteSheet.build(["icons/css_references"], source_root: svg_source_root)
-    sprite_id = Source.sprite_id("icons/css_references", svg_source_root)
-
-    assert sprite_sheet =~ "/* URL(#paint) and #shape\\.icon stay literal */"
-    assert sprite_sheet =~ ~s|content: "URL(#paint) and #shape\\.icon";|
-
-    assert sprite_sheet =~
-             "##{sprite_id}-shape\\.icon::before"
-
-    assert sprite_sheet =~ ~s|fill: URL(##{sprite_id}-paint);|
-
-    assert sprite_sheet =~
-             ~s|[href="##{sprite_id}-shape.icon"], [xlink\\:href='##{sprite_id}-shape.icon']|
-
-    assert sprite_sheet =~ ~s|filter: url('##{sprite_id}-blur');|
-    assert sprite_sheet =~ ~s|[data-reference="#shape.icon"] { color: #fff; }|
-    assert sprite_sheet =~ ".group {\n      ##{sprite_id}-shape\\.icon"
-
-    assert sprite_sheet =~
-             "@scope (##{sprite_id}-shape\\.icon) to (##{sprite_id}-fff)"
-
-    assert sprite_sheet =~
-             "@supports selector([xlink\\:href='##{sprite_id}-shape.icon'])"
-
-    assert sprite_sheet =~ "@keyframes pulse"
-    assert sprite_sheet =~ "from { color: #fff; }"
-    assert sprite_sheet =~ "to { color: #fff; }"
-    assert sprite_sheet =~ "##{sprite_id}-fff { fill: #fff; }"
+    assert_raise ArgumentError, ~r/unsupported <style> element.*SVGO/, fn ->
+      SpriteSheet.build(["icons/styled"], source_root: svg_source_root)
+    end
   end
 
   test "build preserves an empty href fragment" do
@@ -616,81 +565,6 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert_raise ArgumentError, ~r/unknown local id "#shape" from href/, fn ->
       SpriteSheet.build(["icons/double_href"], source_root: svg_source_root)
     end
-  end
-
-  test "build rewrites style block selectors and local url references" do
-    svg_source_root = unique_tmp_dir!("style-blocks")
-    File.mkdir_p!(Path.join(svg_source_root, "icons"))
-
-    File.write!(
-      Path.join(svg_source_root, "icons/styled.svg"),
-      """
-      <svg viewBox="0 0 24 24">
-        <defs>
-          <linearGradient id="paint">
-            <stop offset="0%" />
-          </linearGradient>
-        </defs>
-        <style>
-          #shape { fill: url(#paint); }
-        </style>
-        <path id="shape" d="M0 0h24v24H0z" />
-      </svg>
-      """
-    )
-
-    sprite_sheet = SpriteSheet.build(["icons/styled"], source_root: svg_source_root)
-    sprite_id = Source.sprite_id("icons/styled", svg_source_root)
-
-    assert sprite_sheet =~ "##{sprite_id}-shape { fill: url(##{sprite_id}-paint); }"
-    assert sprite_sheet =~ ~s(id="#{sprite_id}-shape")
-    assert sprite_sheet =~ ~s(id="#{sprite_id}-paint")
-  end
-
-  test "build does not rewrite colors that match local ids in style declarations" do
-    svg_source_root = unique_tmp_dir!("style-colors")
-    File.mkdir_p!(Path.join(svg_source_root, "icons"))
-
-    File.write!(
-      Path.join(svg_source_root, "icons/style_colors.svg"),
-      """
-      <svg viewBox="0 0 24 24">
-        <style>
-          #fff { fill: #fff; }
-        </style>
-        <path id="fff" d="M0 0h24v24H0z" />
-      </svg>
-      """
-    )
-
-    sprite_sheet = SpriteSheet.build(["icons/style_colors"], source_root: svg_source_root)
-    sprite_id = Source.sprite_id("icons/style_colors", svg_source_root)
-
-    assert sprite_sheet =~ "##{sprite_id}-fff { fill: #fff; }"
-  end
-
-  test "build does not rewrite local-id text in style comments or strings" do
-    svg_source_root = unique_tmp_dir!("style-comments-and-strings")
-    File.mkdir_p!(Path.join(svg_source_root, "icons"))
-
-    File.write!(
-      Path.join(svg_source_root, "icons/style_text.svg"),
-      """
-      <svg viewBox="0 0 24 24">
-        <style>
-          /* keep #shape */
-          #shape::before { content: "#shape"; }
-        </style>
-        <path id="shape" d="M0 0h24v24H0z" />
-      </svg>
-      """
-    )
-
-    sprite_sheet = SpriteSheet.build(["icons/style_text"], source_root: svg_source_root)
-    sprite_id = Source.sprite_id("icons/style_text", svg_source_root)
-
-    assert sprite_sheet =~ "/* keep #shape */"
-    assert sprite_sheet =~ ~s(##{sprite_id}-shape::before { content: "#shape"; })
   end
 
   test "build passes through non-local reference forms unchanged" do

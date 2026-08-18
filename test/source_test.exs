@@ -67,6 +67,42 @@ defmodule SvgSpriteEx.SourceTest do
     assert String.valid?(source.inner_content)
   end
 
+  test "read!/2 rejects embedded style elements" do
+    Enum.each(
+      [
+        {"direct", "<style>#shape { fill: red }</style>"},
+        {"nested", "<defs><style>.cls-1 { fill: red }</style></defs>"},
+        {"empty", "<style></style>"}
+      ],
+      fn {name, content} ->
+        svg_source_root = unique_tmp_dir!("embedded-style-#{name}")
+        File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+        File.write!(
+          Path.join(svg_source_root, "icons/#{name}.svg"),
+          ~s(<svg viewBox="0 0 24 24">#{content}<path id="shape" /></svg>)
+        )
+
+        assert_raise ArgumentError,
+                     ~r/svg asset "icons\/#{name}" contains an unsupported <style> element.*SVGO/,
+                     fn -> Source.read!("icons/#{name}", svg_source_root) end
+      end
+    )
+  end
+
+  test "read!/2 preserves inline style attributes" do
+    svg_source_root = unique_tmp_dir!("inline-style-attribute")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/styled.svg"),
+      ~s|<svg viewBox="0 0 24 24"><path style="fill: url(#paint); color: #fff" /></svg>|
+    )
+
+    assert Source.read!("icons/styled", svg_source_root).inner_content =~
+             ~s|style="fill: url(#paint); color: #fff"|
+  end
+
   test "source_file_path!/2 accepts files under a relative source root" do
     svg_source_root = unique_tmp_dir!("relative-root")
     relative_root = Path.relative_to(svg_source_root, File.cwd!(), force: true)
