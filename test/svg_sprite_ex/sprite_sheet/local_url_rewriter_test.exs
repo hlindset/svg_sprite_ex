@@ -23,9 +23,16 @@ defmodule SvgSpriteEx.SpriteSheet.LocalUrlRewriterTest do
   end
 
   test "matches only a whole URL function name without intervening whitespace" do
-    input = ~S|a:myurl(#paint);b:url (#paint);c:URL(#paint)|
+    input = ~S|a:myurl(#paint);b:url (#paint);c:URL(#paint);d:éurl(#paint)|
 
-    assert rewrite(input) == ~S|a:myurl(#paint);b:url (#paint);c:URL(#icon-abc-paint)|
+    assert rewrite(input) ==
+             ~S|a:myurl(#paint);b:url (#paint);c:URL(#icon-abc-paint);d:éurl(#paint)|
+  end
+
+  test "preserves mixed ASCII whitespace around URL values" do
+    input = "fill:url(\t#paint \r\n)"
+
+    assert rewrite(input) == "fill:url(\t#icon-abc-paint \r\n)"
   end
 
   test "reports unknown local fragment targets" do

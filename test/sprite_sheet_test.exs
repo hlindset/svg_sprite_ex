@@ -273,7 +273,7 @@ defmodule SvgSpriteEx.SpriteSheetTest do
 
     assert sprite_sheet =~ ~s|fill="url('##{sprite_id}-paint')"|
     assert sprite_sheet =~ ~s|stroke="url(&quot;##{sprite_id}-paint&quot;)"|
-    assert sprite_sheet =~ ~s|filter="url('##{sprite_id}-blur')"|
+    assert sprite_sheet =~ ~s|filter="url(  '##{sprite_id}-blur'  )"|
   end
 
   test "build rewrites local href fragments" do
@@ -509,6 +509,56 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert sprite_sheet =~ ~s|style="stroke: URL('##{sprite_id}-paint')"|
     assert sprite_sheet =~ ~s|aria-label="url(#missing)"|
     assert sprite_sheet =~ ~s|data-reference="URL(#missing)"|
+  end
+
+  test "build rewrites canonical local URLs without interpreting inline declarations" do
+    svg_source_root = unique_tmp_dir!("curated-inline-css")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/curated_inline_css.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <linearGradient id="paint" />
+        <path
+          fill="url(&quot;#paint&quot;)"
+          style="--paint: URL( #paint ); content: 'url(#missing)'; color: #fff"
+        />
+      </svg>
+      """
+    )
+
+    sprite_sheet =
+      SpriteSheet.build(["icons/curated_inline_css"], source_root: svg_source_root)
+
+    sprite_id = Source.sprite_id("icons/curated_inline_css", svg_source_root)
+
+    assert sprite_sheet =~ ~s|fill="url(&quot;##{sprite_id}-paint&quot;)"|
+
+    assert sprite_sheet =~
+             ~s|style="--paint: URL( ##{sprite_id}-paint ); content: 'url(#missing)'; color: #fff"|
+  end
+
+  test "build rejects noncanonical CSS in style and presentation attributes" do
+    cases = [
+      {"comment", ~s|style="fill: /* comment */ url(#paint)"|},
+      {"escape", ~s|style="fill: u\\72l(#paint)"|},
+      {"malformed-url", ~s|fill="url(#paint"|}
+    ]
+
+    Enum.each(cases, fn {name, attribute} ->
+      svg_source_root = unique_tmp_dir!("unsupported-inline-css-#{name}")
+      File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+      File.write!(
+        Path.join(svg_source_root, "icons/#{name}.svg"),
+        ~s|<svg viewBox="0 0 24 24"><linearGradient id="paint" /><path #{attribute} /></svg>|
+      )
+
+      assert_raise ArgumentError, ~r/unsupported CSS.*SVGO/, fn ->
+        SpriteSheet.build(["icons/#{name}"], source_root: svg_source_root)
+      end
+    end)
   end
 
   test "build rejects embedded style elements" do

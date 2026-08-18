@@ -158,7 +158,7 @@ defmodule SvgSpriteEx.SpriteSheet.LocalUrlRewriter do
   defp take_identifier(content), do: take_identifier(content, [])
 
   defp take_identifier(<<byte, rest::binary>>, output)
-       when byte in ?a..?z or byte in ?A..?Z or byte in ?0..?9 or byte in [?_, ?-] do
+       when byte in ?a..?z or byte in ?A..?Z or byte in ?0..?9 or byte in [?_, ?-] or byte >= 128 do
     take_identifier(rest, [<<byte>> | output])
   end
 
@@ -207,7 +207,8 @@ defmodule SvgSpriteEx.SpriteSheet.LocalUrlRewriter do
     |> Enum.reverse()
     |> Enum.split_while(&(&1 in @css_whitespace))
     |> then(fn {whitespace, value} ->
-      {value |> Enum.reverse() |> :binary.list_to_bin(), :binary.list_to_bin(whitespace)}
+      trailing_whitespace = whitespace |> Enum.reverse() |> :binary.list_to_bin()
+      {value |> Enum.reverse() |> :binary.list_to_bin(), trailing_whitespace}
     end)
   end
 

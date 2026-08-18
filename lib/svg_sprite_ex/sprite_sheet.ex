@@ -6,8 +6,8 @@ defmodule SvgSpriteEx.SpriteSheet do
   alias Phoenix.HTML
   alias Phoenix.HTML.Safe
   alias SvgSpriteEx.Source
-  alias SvgSpriteEx.SpriteSheet.CSSRewriter
   alias SvgSpriteEx.SpriteSheet.Fragment
+  alias SvgSpriteEx.SpriteSheet.LocalUrlRewriter
   alias SvgSpriteEx.Xmerl
 
   Record.defrecordp(
@@ -18,11 +18,6 @@ defmodule SvgSpriteEx.SpriteSheet do
   Record.defrecordp(
     :xml_element,
     Record.extract(:xmlElement, from_lib: "xmerl/include/xmerl.hrl")
-  )
-
-  Record.defrecordp(
-    :xml_text,
-    Record.extract(:xmlText, from_lib: "xmerl/include/xmerl.hrl")
   )
 
   @passthrough_attribute_exclusions MapSet.new(["height", "viewBox", "width", "xmlns"])
@@ -265,11 +260,8 @@ defmodule SvgSpriteEx.SpriteSheet do
   end
 
   defp rewrite_node!(node, normalized_name, id_map) do
-    cond do
-      style_element_node?(node) ->
-        rewrite_style_node!(node, normalized_name, id_map)
-
-      xml_element_node?(node) ->
+    case xml_element_node?(node) do
+      true ->
         updated_attributes = rewrite_element_attributes!(node, normalized_name, id_map)
 
         updated_content =
@@ -279,7 +271,7 @@ defmodule SvgSpriteEx.SpriteSheet do
 
         xml_element(node, attributes: updated_attributes, content: updated_content)
 
-      true ->
+      false ->
         node
     end
   end
@@ -390,7 +382,7 @@ defmodule SvgSpriteEx.SpriteSheet do
         rewrite_smil_timing_references(value, id_map)
 
       MapSet.member?(@url_reference_attrs, name) ->
-        CSSRewriter.rewrite_urls!(value, normalized_name, id_map, name)
+        LocalUrlRewriter.rewrite!(value, normalized_name, id_map, name)
 
       true ->
         value
@@ -475,47 +467,6 @@ defmodule SvgSpriteEx.SpriteSheet do
     end
   end
 
-  defp rewrite_style_node!(node, normalized_name, id_map) do
-    updated_attributes =
-      node
-      |> xml_element(:attributes)
-      |> Enum.map(&rewrite_attribute!(&1, normalized_name, id_map))
-
-    updated_content =
-      node
-      |> xml_element(:content)
-      |> Enum.map(&rewrite_style_content_node!(&1, normalized_name, id_map))
-
-    xml_element(node, attributes: updated_attributes, content: updated_content)
-  end
-
-  defp rewrite_style_content_node!(node, normalized_name, id_map) do
-    cond do
-      xml_text_node?(node) ->
-        rewrite_style_text_node!(node, normalized_name, id_map)
-
-      xml_element_node?(node) ->
-        rewrite_node!(node, normalized_name, id_map)
-
-      true ->
-        node
-    end
-  end
-
-  defp rewrite_style_text_node!(node, normalized_name, id_map) do
-    rewritten_content =
-      node
-      |> xml_text(:value)
-      |> Xmerl.characters_to_binary()
-      |> rewrite_style_content!(normalized_name, id_map)
-
-    xml_text(node, value: String.to_charlist(rewritten_content))
-  end
-
-  defp rewrite_style_content!(content, normalized_name, id_map) do
-    CSSRewriter.rewrite_stylesheet!(content, normalized_name, id_map)
-  end
-
   defp rewrite_reference_target!(target, attr_name, normalized_name, id_map) do
     case Map.fetch(id_map, target) do
       {:ok, rewritten_target} ->
@@ -598,14 +549,6 @@ defmodule SvgSpriteEx.SpriteSheet do
 
   defp xml_element_node?(node) do
     is_tuple(node) and tuple_size(node) > 0 and elem(node, 0) == :xmlElement
-  end
-
-  defp style_element_node?(node) do
-    xml_element_node?(node) and xml_element(node, :name) == :style
-  end
-
-  defp xml_text_node?(node) do
-    is_tuple(node) and tuple_size(node) > 0 and elem(node, 0) == :xmlText
   end
 
   defp escape_xml_attr(value) do

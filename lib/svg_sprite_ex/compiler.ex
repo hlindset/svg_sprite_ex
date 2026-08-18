@@ -285,8 +285,8 @@ defmodule SvgSpriteEx.Compiler do
       SvgSpriteEx.Source,
       SvgSpriteEx.SpriteMeta,
       SvgSpriteEx.SpriteSheet,
-      SvgSpriteEx.SpriteSheet.CSSRewriter,
       SvgSpriteEx.SpriteSheet.Fragment,
+      SvgSpriteEx.SpriteSheet.LocalUrlRewriter,
       SvgSpriteEx.SpriteSheetMeta,
       SvgSpriteEx.Xmerl
     ]
