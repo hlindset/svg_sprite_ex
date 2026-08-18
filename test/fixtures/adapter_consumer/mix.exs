@@ -5,8 +5,7 @@ defmodule AdapterConsumer.MixProject do
 
   def project do
     mode = mode!()
-    build_scope = System.get_env("SVG_SPRITE_EX_ADAPTER_BUILD_SCOPE", mode)
-    temp_root = Path.join(System.tmp_dir!(), "svg_sprite_ex_adapter_consumer/#{build_scope}")
+    temp_root = Path.join(System.tmp_dir!(), "svg_sprite_ex_adapter_consumer/#{mode}")
 
     [
       app: :adapter_consumer,
@@ -25,41 +24,14 @@ defmodule AdapterConsumer.MixProject do
   def cli, do: [preferred_envs: [do: :test]]
 
   defp deps(mode) do
-    [svg_sprite_ex_dep() | adapter_deps(mode)]
+    [{:svg_sprite_ex, path: Path.expand("../../..", __DIR__)} | adapter_deps(mode)]
   end
 
-  defp svg_sprite_ex_dep do
-    case System.get_env("SVG_SPRITE_EX_ADAPTER_DEPENDENCY_SOURCE", "path") do
-      "path" ->
-        {:svg_sprite_ex, path: Path.expand("../../..", __DIR__)}
+  defp adapter_deps("none"), do: []
+  defp adapter_deps("live_view"), do: [{:phoenix_live_view, "~> 1.0"}]
+  defp adapter_deps("hologram"), do: [{:hologram, "~> 0.11"}]
 
-      "git" ->
-        {:svg_sprite_ex,
-         git:
-           System.get_env(
-             "SVG_SPRITE_EX_ADAPTER_GIT_REPOSITORY",
-             "file://#{Path.expand("../../..", __DIR__)}"
-           ),
-         ref: System.fetch_env!("SVG_SPRITE_EX_ADAPTER_GIT_REF")}
-
-      source ->
-        raise "unknown svg_sprite_ex dependency source: #{inspect(source)}"
-    end
-  end
-
-  defp adapter_deps(mode) do
-    case System.get_env("SVG_SPRITE_EX_ADAPTER_DEPENDENCY_STYLE", "direct") do
-      "direct" -> direct_adapter_deps(mode)
-      "transitive" -> [{:adapter_frameworks, path: Path.expand("../adapter_frameworks", __DIR__)}]
-      style -> raise "unknown adapter dependency style: #{inspect(style)}"
-    end
-  end
-
-  defp direct_adapter_deps("none"), do: []
-  defp direct_adapter_deps("live_view"), do: [{:phoenix_live_view, "~> 1.0"}]
-  defp direct_adapter_deps("hologram"), do: [{:hologram, "~> 0.11"}]
-
-  defp direct_adapter_deps("both") do
+  defp adapter_deps("both") do
     [{:phoenix_live_view, "~> 1.0"}, {:hologram, "~> 0.11"}]
   end
 

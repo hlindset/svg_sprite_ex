@@ -1,12 +1,4 @@
-defmodule SvgSpriteEx.OptionalDependencies.LocalPath.Hologram do
-  @moduledoc false
-
-  require SvgSpriteEx.OptionalDependencies
-  SvgSpriteEx.OptionalDependencies.track_local_dependency(:hologram)
-end
-
-if :hologram in Mix.Project.deps_apps() and
-     Code.ensure_loaded?(Hologram.Component) do
+if Code.ensure_loaded?(Hologram.Component) do
   defmodule SvgSpriteEx.Hologram do
     @moduledoc ~S'''
     Hologram setup for compile-time sprite refs.
