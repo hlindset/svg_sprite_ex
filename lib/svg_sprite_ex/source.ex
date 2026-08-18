@@ -3,14 +3,17 @@ defmodule SvgSpriteEx.Source do
 
   require Record
 
-  @enforce_keys [:name, :file_path, :attributes, :inner_content]
-  defstruct [:name, :file_path, :attributes, :inner_content]
+  alias SvgSpriteEx.Xmerl
+
+  @enforce_keys [:name, :file_path, :attributes, :inner_content, :content_nodes]
+  defstruct [:name, :file_path, :attributes, :inner_content, :content_nodes]
 
   @type t :: %__MODULE__{
           name: String.t(),
           file_path: String.t(),
           attributes: %{optional(String.t()) => String.t()},
-          inner_content: String.t()
+          inner_content: String.t(),
+          content_nodes: [term()]
         }
 
   Record.defrecordp(
@@ -39,13 +42,18 @@ defmodule SvgSpriteEx.Source do
     source_root = validate_source_root_directory!(source_root)
     normalized_name = normalize_name!(name, source_root)
     file_path = source_file_path_from_normalized!(normalized_name, source_root)
-    %{attributes: attributes, inner_content: inner_content} = parse_svg_file!(file_path)
+
+    %{attributes: attributes, inner_content: inner_content, content_nodes: content_nodes} =
+      parse_svg_file!(file_path)
+
+    reject_style_elements!(content_nodes, normalized_name)
 
     %__MODULE__{
       name: normalized_name,
       file_path: file_path,
       attributes: attributes,
-      inner_content: inner_content
+      inner_content: inner_content,
+      content_nodes: content_nodes
     }
   end
 
@@ -173,7 +181,8 @@ defmodule SvgSpriteEx.Source do
     if xml_element(root, :name) == :svg do
       %{
         attributes: parse_attributes(xml_element(root, :attributes)),
-        inner_content: render_inner_content(root)
+        inner_content: render_inner_content(root),
+        content_nodes: xml_element(root, :content)
       }
     else
       raise ArgumentError, "svg asset #{inspect(file_path)} does not contain a valid <svg> root"
@@ -182,7 +191,7 @@ defmodule SvgSpriteEx.Source do
 
   defp parse_xml_document!(svg_document, file_path) do
     svg_document
-    |> String.to_charlist()
+    |> :binary.bin_to_list()
     |> :xmerl_scan.string(@xmerl_scan_opts)
     |> elem(0)
   catch
@@ -205,8 +214,36 @@ defmodule SvgSpriteEx.Source do
     root
     |> xml_element(:content)
     |> :xmerl.export_simple_content(:xmerl_xml)
-    |> IO.iodata_to_binary()
+    |> Xmerl.characters_to_binary()
     |> String.trim()
+  end
+
+  defp reject_style_elements!(nodes, normalized_name) do
+    Enum.each(nodes, &reject_style_element!(&1, normalized_name))
+  end
+
+  defp reject_style_element!(node, normalized_name) do
+    case xml_element_node?(node) do
+      true ->
+        reject_style_element_name!(xml_element(node, :name), normalized_name)
+        reject_style_elements!(xml_element(node, :content), normalized_name)
+
+      false ->
+        :ok
+    end
+  end
+
+  defp reject_style_element_name!(name, normalized_name) do
+    case name |> Atom.to_string() |> String.split(":") |> List.last() do
+      "style" ->
+        raise ArgumentError,
+              "svg asset #{inspect(normalized_name)} contains an unsupported <style> element; " <>
+                "preprocess embedded styles into inline declarations or presentation attributes " <>
+                "before compilation (for example with SVGO)"
+
+      _other ->
+        :ok
+    end
   end
 
   defp attribute_name(attribute) do
@@ -218,7 +255,11 @@ defmodule SvgSpriteEx.Source do
   defp attribute_value(attribute) do
     attribute
     |> xml_attribute(:value)
-    |> IO.iodata_to_binary()
+    |> Xmerl.characters_to_binary()
+  end
+
+  defp xml_element_node?(node) do
+    is_tuple(node) and tuple_size(node) > 0 and elem(node, 0) == :xmlElement
   end
 
   defp safe_name!(name, source_root, original_name) do

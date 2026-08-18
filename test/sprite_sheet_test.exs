@@ -88,7 +88,63 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     refute sprite_sheet =~ ~r/<symbol[^>]* xmlns=/
   end
 
-  test "build raises when a source svg is missing a viewBox" do
+  test "build raises for colliding generated sprite IDs before constructing symbols" do
+    svg_source_root = unique_tmp_dir!("sprite-id-collision")
+    first_name = "I owe Bob 14304.55 Euros. Alice."
+    second_name = "I owe Bob 3632210 Euros. Alice."
+    first_path = Path.join(svg_source_root, first_name <> ".svg")
+    second_path = Path.join(svg_source_root, second_name <> ".svg")
+
+    File.write!(first_path, "<svg viewBox=\"0 0 24 24\" />")
+    File.write!(second_path, "<svg viewBox=\"0 0 24 24\" />")
+
+    assert_raise ArgumentError,
+                 "sprite ID collisions detected: icon-c7dee1bb8675: #{first_path}, #{second_path}",
+                 fn ->
+                   SpriteSheet.build([second_name, first_name], source_root: svg_source_root)
+                 end
+  end
+
+  test "build de-duplicates slash, backslash, and surrounding-whitespace source aliases" do
+    svg_source_root = unique_tmp_dir!("normalized-source-aliases")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/alpha.svg"),
+      "<svg viewBox=\"0 0 24 24\" />"
+    )
+
+    sprite_sheet =
+      SpriteSheet.build([" icons/alpha ", "icons\\alpha", "icons/alpha"],
+        source_root: svg_source_root
+      )
+
+    assert count_occurrences(sprite_sheet, "<symbol id=") == 1
+    assert sprite_sheet =~ ~s(<symbol id="#{Source.sprite_id("icons/alpha", svg_source_root)}")
+  end
+
+  test "build derives a viewBox from width and height when missing" do
+    svg_source_root = unique_tmp_dir!("derived-viewbox")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/sized.svg"),
+      """
+      <svg width="24" height="16px">
+        <path d="M0 0h24v16H0z" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/sized"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/sized", svg_source_root)
+
+    assert sprite_sheet =~ ~s(<symbol id="#{sprite_id}" viewBox="0 0 24 16")
+    refute sprite_sheet =~ ~s( width="24")
+    refute sprite_sheet =~ ~s( height="16px")
+  end
+
+  test "build raises when a source svg is missing a viewBox and usable width/height" do
     svg_source_root = unique_tmp_dir!("missing-viewbox")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))
 
@@ -101,8 +157,574 @@ defmodule SvgSpriteEx.SpriteSheetTest do
       """
     )
 
-    assert_raise ArgumentError, ~r/is missing a viewBox/, fn ->
+    assert_raise ArgumentError, ~r/is missing a viewBox and usable width\/height/, fn ->
       SpriteSheet.build(["icons/no_viewbox"], source_root: svg_source_root)
+    end
+  end
+
+  test "build namespaces local ids and rewrites url-based references inside each symbol" do
+    svg_source_root = unique_tmp_dir!("rewritten-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/complex.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <defs>
+          <linearGradient id="paint">
+            <stop offset="0%" />
+          </linearGradient>
+          <clipPath id="clipper">
+            <rect x="0" y="0" width="24" height="24" />
+          </clipPath>
+          <mask id="masker">
+            <rect x="0" y="0" width="24" height="24" fill="white" />
+          </mask>
+          <filter id="blur">
+            <feGaussianBlur stdDeviation="1" />
+          </filter>
+          <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6">
+            <path d="M0 0 L10 5 L0 10z" />
+          </marker>
+        </defs>
+        <path
+          fill="url(#paint)"
+          clip-path="url(#clipper)"
+          mask="url(#masker)"
+          filter="url(#blur)"
+          marker-end="url(#arrow)"
+          d="M2 2h20v20H2z"
+        />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/complex"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/complex", svg_source_root)
+
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-paint")
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-clipper")
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-masker")
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-blur")
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-arrow")
+    assert sprite_sheet =~ ~s|fill="url(##{sprite_id}-paint)"|
+    assert sprite_sheet =~ ~s|clip-path="url(##{sprite_id}-clipper)"|
+    assert sprite_sheet =~ ~s|mask="url(##{sprite_id}-masker)"|
+    assert sprite_sheet =~ ~s|filter="url(##{sprite_id}-blur)"|
+    assert sprite_sheet =~ ~s|marker-end="url(##{sprite_id}-arrow)"|
+  end
+
+  test "build rewrites root svg attributes against namespaced local ids" do
+    svg_source_root = unique_tmp_dir!("root-attrs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/root_attrs.svg"),
+      """
+      <svg id="root-shape" viewBox="0 0 24 24" clip-path="url(#clipper)">
+        <defs>
+          <clipPath id="clipper">
+            <rect x="0" y="0" width="24" height="24" />
+          </clipPath>
+        </defs>
+        <path d="M0 0h24v24H0z" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/root_attrs"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/root_attrs", svg_source_root)
+
+    assert sprite_sheet =~
+             ~s|<symbol id="#{sprite_id}" viewBox="0 0 24 24" clip-path="url(##{sprite_id}-clipper)"|
+
+    refute sprite_sheet =~ ~s( id="root-shape")
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-clipper")
+  end
+
+  test "build rewrites quoted and whitespace-padded local url references" do
+    svg_source_root = unique_tmp_dir!("quoted-url-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/quoted.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <defs>
+          <linearGradient id="paint">
+            <stop offset="0%" />
+          </linearGradient>
+          <filter id="blur">
+            <feGaussianBlur stdDeviation="1" />
+          </filter>
+        </defs>
+        <path
+          fill="url('#paint')"
+          stroke="url(&quot;#paint&quot;)"
+          filter="url(  '#blur'  )"
+          d="M2 2h20v20H2z"
+        />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/quoted"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/quoted", svg_source_root)
+
+    assert sprite_sheet =~ ~s|fill="url('##{sprite_id}-paint')"|
+    assert sprite_sheet =~ ~s|stroke="url(&quot;##{sprite_id}-paint&quot;)"|
+    assert sprite_sheet =~ ~s|filter="url(  '##{sprite_id}-blur'  )"|
+  end
+
+  test "build rewrites local href fragments" do
+    svg_source_root = unique_tmp_dir!("href-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/links.svg"),
+      [
+        ["<svg xmlns", ?:, "xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 24 24\">\n"],
+        "  <defs>\n",
+        "    <g id=\"shape\">\n",
+        "      <path d=\"M0 0h24v24H0z\" />\n",
+        "    </g>\n",
+        "  </defs>\n",
+        ["  <use href=\"", ?#, "shape\" />\n"],
+        ["  <use xlink", ?:, "href=\"", ?#, "shape\" />\n"],
+        "</svg>\n"
+      ]
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/links"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/links", svg_source_root)
+
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-shape")
+    assert sprite_sheet =~ ~s(href="##{sprite_id}-shape")
+    assert sprite_sheet =~ ~s(xlink:href="##{sprite_id}-shape")
+  end
+
+  test "build decodes percent-encoded local href fragments" do
+    svg_source_root = unique_tmp_dir!("percent-encoded-href-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/encoded_links.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="shape.icon" />
+        <use href="#shape%2Eicon" />
+        <use href="#shape%2eicon" />
+        <use href="#shape%2Gicon" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/encoded_links"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/encoded_links", svg_source_root)
+
+    assert count_occurrences(sprite_sheet, ~s(href="##{sprite_id}-shape.icon")) == 2
+    assert sprite_sheet =~ ~s(href="#shape%2Gicon")
+  end
+
+  test "build matches numeric-entity Unicode ids to percent-encoded hrefs" do
+    svg_source_root = unique_tmp_dir!("unicode-id-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/unicode_links.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="caf&#xE9;" />
+        <use href="#caf%C3%A9" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/unicode_links"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/unicode_links", svg_source_root)
+
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-café")
+    assert sprite_sheet =~ ~s(href="##{sprite_id}-café")
+    assert String.valid?(sprite_sheet)
+  end
+
+  test "build matches literal UTF-8 ids to percent-encoded hrefs" do
+    svg_source_root = unique_tmp_dir!("literal-unicode-id-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/literal_unicode_links.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="café" />
+        <use href="#caf%C3%A9" />
+      </svg>
+      """
+    )
+
+    sprite_sheet =
+      SpriteSheet.build(["icons/literal_unicode_links"], source_root: svg_source_root)
+
+    sprite_id = Source.sprite_id("icons/literal_unicode_links", svg_source_root)
+
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-café")
+    assert sprite_sheet =~ ~s(href="##{sprite_id}-café")
+    assert String.valid?(sprite_sheet)
+  end
+
+  test "build converts Unicode attribute and text content to UTF-8" do
+    svg_source_root = unique_tmp_dir!("unicode-content")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/unicode_content.svg"),
+      """
+      <svg viewBox="0 0 24 24" data-label="caf&#xE9;">
+        <path id="shape" aria-label="caf&#xE9;">snow &#x2603;</path>
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/unicode_content"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/unicode_content", svg_source_root)
+
+    assert sprite_sheet =~ ~s(data-label="café")
+    assert sprite_sheet =~ ~s(id="#{sprite_id}-shape")
+    assert sprite_sheet =~ ~s(aria-label="café">snow ☃</path>)
+    assert String.valid?(sprite_sheet)
+  end
+
+  test "build rewrites known ARIA, for, and SMIL timing ID references" do
+    svg_source_root = unique_tmp_dir!("idrefs-and-timing")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/references.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <g id="active" />
+        <g id="control" />
+        <g id="description" />
+        <g id="details" />
+        <g id="error" />
+        <g id="flow" />
+        <g id="label" />
+        <g id="owner" />
+        <path
+          id="shape"
+          aria-activedescendant="active"
+          aria-controls="control   external-control"
+          aria-describedby="description"
+          aria-details="details"
+          aria-errormessage="error"
+          aria-flowto="flow"
+          aria-labelledby="label   description"
+          aria-owns="owner"
+          for="label"
+        />
+        <animate
+          begin="shape.click; 2s; accessKey(a); shape.begin+250ms"
+          end="shape.end-1s; indefinite; wallclock(2026-08-18T12:00:00Z)"
+        />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/references"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/references", svg_source_root)
+
+    assert sprite_sheet =~ ~s(aria-activedescendant="#{sprite_id}-active")
+    assert sprite_sheet =~ ~s(aria-controls="#{sprite_id}-control   external-control")
+    assert sprite_sheet =~ ~s(aria-describedby="#{sprite_id}-description")
+    assert sprite_sheet =~ ~s(aria-details="#{sprite_id}-details")
+    assert sprite_sheet =~ ~s(aria-errormessage="#{sprite_id}-error")
+    assert sprite_sheet =~ ~s(aria-flowto="#{sprite_id}-flow")
+
+    assert sprite_sheet =~
+             ~s(aria-labelledby="#{sprite_id}-label   #{sprite_id}-description")
+
+    assert sprite_sheet =~ ~s(aria-owns="#{sprite_id}-owner")
+    assert sprite_sheet =~ ~s(for="#{sprite_id}-label")
+
+    assert sprite_sheet =~
+             ~s|begin="#{sprite_id}-shape.click; 2s; accessKey(a); #{sprite_id}-shape.begin+250ms"|
+
+    assert sprite_sheet =~
+             ~s|end="#{sprite_id}-shape.end-1s; indefinite; wallclock(2026-08-18T12:00:00Z)"|
+  end
+
+  test "build rewrites SMIL animation values using the target attribute semantics" do
+    svg_source_root = unique_tmp_dir!("smil-animation-values")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/animated_references.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <linearGradient id="paint" />
+        <filter id="blur" />
+        <path id="shape" />
+        <rect>
+          <animate attributeName="fill" values="url(#paint); none" />
+          <set attributeName="filter" to="url(#blur)" />
+          <animate attributeName="href" to="#shape" />
+        </rect>
+      </svg>
+      """
+    )
+
+    sprite_sheet =
+      SpriteSheet.build(["icons/animated_references"], source_root: svg_source_root)
+
+    sprite_id = Source.sprite_id("icons/animated_references", svg_source_root)
+
+    assert sprite_sheet =~ ~s|values="url(##{sprite_id}-paint); none"|
+    assert sprite_sheet =~ ~s|to="url(##{sprite_id}-blur)"|
+    assert sprite_sheet =~ ~s|attributeName="href" to="##{sprite_id}-shape"|
+  end
+
+  test "build rewrites local URLs only in supported SVG attributes" do
+    svg_source_root = unique_tmp_dir!("url-contexts")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/url_contexts.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <linearGradient id="paint" />
+        <path
+          fill="URL(#paint)"
+          style="stroke: URL('#paint')"
+          aria-label="url(#missing)"
+          data-reference="URL(#missing)"
+        />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/url_contexts"], source_root: svg_source_root)
+    sprite_id = Source.sprite_id("icons/url_contexts", svg_source_root)
+
+    assert sprite_sheet =~ ~s|fill="URL(##{sprite_id}-paint)"|
+    assert sprite_sheet =~ ~s|style="stroke: URL('##{sprite_id}-paint')"|
+    assert sprite_sheet =~ ~s|aria-label="url(#missing)"|
+    assert sprite_sheet =~ ~s|data-reference="URL(#missing)"|
+  end
+
+  test "build rewrites canonical local URLs without interpreting inline declarations" do
+    svg_source_root = unique_tmp_dir!("curated-inline-css")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/curated_inline_css.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <linearGradient id="paint" />
+        <path
+          fill="url(&quot;#paint&quot;)"
+          style="--paint: URL( #paint ); content: 'url(#missing)'; color: #fff"
+        />
+      </svg>
+      """
+    )
+
+    sprite_sheet =
+      SpriteSheet.build(["icons/curated_inline_css"], source_root: svg_source_root)
+
+    sprite_id = Source.sprite_id("icons/curated_inline_css", svg_source_root)
+
+    assert sprite_sheet =~ ~s|fill="url(&quot;##{sprite_id}-paint&quot;)"|
+
+    assert sprite_sheet =~
+             ~s|style="--paint: URL( ##{sprite_id}-paint ); content: 'url(#missing)'; color: #fff"|
+  end
+
+  test "build rejects noncanonical CSS in style and presentation attributes" do
+    cases = [
+      {"comment", ~s|style="fill: /* comment */ url(#paint)"|},
+      {"escape", ~s|style="fill: u\\72l(#paint)"|},
+      {"malformed-url", ~s|fill="url(#paint"|}
+    ]
+
+    Enum.each(cases, fn {name, attribute} ->
+      svg_source_root = unique_tmp_dir!("unsupported-inline-css-#{name}")
+      File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+      File.write!(
+        Path.join(svg_source_root, "icons/#{name}.svg"),
+        ~s|<svg viewBox="0 0 24 24"><linearGradient id="paint" /><path #{attribute} /></svg>|
+      )
+
+      assert_raise ArgumentError, ~r/unsupported CSS.*SVGO/, fn ->
+        SpriteSheet.build(["icons/#{name}"], source_root: svg_source_root)
+      end
+    end)
+  end
+
+  test "build rejects embedded style elements" do
+    svg_source_root = unique_tmp_dir!("embedded-style")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/styled.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <style>.cls-1 { fill: red }</style>
+        <path class="cls-1" />
+      </svg>
+      """
+    )
+
+    assert_raise ArgumentError, ~r/unsupported <style> element.*SVGO/, fn ->
+      SpriteSheet.build(["icons/styled"], source_root: svg_source_root)
+    end
+  end
+
+  test "build preserves an empty href fragment" do
+    svg_source_root = unique_tmp_dir!("empty-href-fragment")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/empty_href.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <use href="#" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/empty_href"], source_root: svg_source_root)
+
+    assert sprite_sheet =~ ~s(href="#")
+  end
+
+  test "build strips exactly one hash from non-empty href fragments" do
+    svg_source_root = unique_tmp_dir!("double-href-fragment")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/double_href.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="shape" />
+        <use href="##shape" />
+      </svg>
+      """
+    )
+
+    assert_raise ArgumentError, ~r/unknown local id "#shape" from href/, fn ->
+      SpriteSheet.build(["icons/double_href"], source_root: svg_source_root)
+    end
+  end
+
+  test "build passes through non-local reference forms unchanged" do
+    svg_source_root = unique_tmp_dir!("unsupported-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/external.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <defs>
+          <g id="shape">
+            <path d="M0 0h24v24H0z" />
+          </g>
+        </defs>
+        <path fill="url(http://example.com/pattern.svg#paint)" d="M0 0h24v24H0z" />
+        <use href="other.svg#shape" />
+      </svg>
+      """
+    )
+
+    sprite_sheet = SpriteSheet.build(["icons/external"], source_root: svg_source_root)
+
+    assert sprite_sheet =~ ~s|fill="url(http://example.com/pattern.svg#paint)"|
+    assert sprite_sheet =~ ~s(href="other.svg#shape")
+  end
+
+  test "build rejects duplicate child local ids with their locations" do
+    svg_source_root = unique_tmp_dir!("duplicate-child-ids")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/duplicate_children.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="shape" />
+        <circle id="shape" />
+      </svg>
+      """
+    )
+
+    error =
+      assert_raise ArgumentError, fn ->
+        SpriteSheet.build(["icons/duplicate_children"], source_root: svg_source_root)
+      end
+
+    assert Exception.message(error) =~
+             ~r/svg asset "icons\/duplicate_children" contains duplicate local id "shape".*path.*circle/
+  end
+
+  test "build rejects root and child local id collisions with their locations" do
+    svg_source_root = unique_tmp_dir!("duplicate-root-id")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/duplicate_root.svg"),
+      """
+      <svg id="shape" viewBox="0 0 24 24">
+        <path id="shape" />
+      </svg>
+      """
+    )
+
+    error =
+      assert_raise ArgumentError, fn ->
+        SpriteSheet.build(["icons/duplicate_root"], source_root: svg_source_root)
+      end
+
+    assert Exception.message(error) =~
+             ~r/svg asset "icons\/duplicate_root" contains duplicate local id "shape".*root.*path/
+  end
+
+  test "build rejects empty and whitespace-containing local ids" do
+    Enum.each(
+      [
+        {"empty", "", "must not be empty"},
+        {"whitespace", "two words", "must not contain whitespace"},
+        {"unicode-whitespace", "two&#xA0;words", "must not contain whitespace"}
+      ],
+      fn {fixture, id, expected_message} ->
+        svg_source_root = unique_tmp_dir!("invalid-#{fixture}-id")
+        File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+        File.write!(
+          Path.join(svg_source_root, "icons/#{fixture}.svg"),
+          ~s(<svg viewBox="0 0 24 24"><path id="#{id}" /></svg>)
+        )
+
+        assert_raise ArgumentError, ~r/#{expected_message}/, fn ->
+          SpriteSheet.build(["icons/#{fixture}"], source_root: svg_source_root)
+        end
+      end
+    )
+  end
+
+  test "build still raises for missing local reference targets" do
+    svg_source_root = unique_tmp_dir!("missing-local-refs")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/broken.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path fill="url(#paint)" d="M0 0h24v24H0z" />
+      </svg>
+      """
+    )
+
+    assert_raise ArgumentError, ~r/references unknown local id/, fn ->
+      SpriteSheet.build(["icons/broken"], source_root: svg_source_root)
     end
   end
 

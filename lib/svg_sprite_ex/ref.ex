@@ -12,8 +12,6 @@ defmodule SvgSpriteEx.Ref do
   alias SvgSpriteEx.Source
   alias SvgSpriteEx.SpriteRef
 
-  @inline_registry_module SvgSpriteEx.Generated.InlineIcons
-
   @doc false
   defmacro __using__(_opts) do
     quote do
@@ -182,7 +180,9 @@ defmodule SvgSpriteEx.Ref do
       )
 
     literal_opts = expand_literal_opts!(opts, caller)
-    normalized_name = expand_literal_name!(literal_name, caller, source_root)
+
+    {normalized_name, source_file_path} =
+      resolve_registered_source!(literal_name, caller, source_root)
 
     normalized_sheet =
       expand_literal_sheet!(Keyword.get(literal_opts, :sheet), caller, default_sheet)
@@ -191,18 +191,24 @@ defmodule SvgSpriteEx.Ref do
       %SpriteRef{
         name: normalized_name,
         sheet: normalized_sheet,
-        sprite_id: Source.sprite_id_from_normalized(normalized_name),
-        href: sprite_href_from_normalized(normalized_name, normalized_sheet, public_path)
+        sheet_public_path: sheet_public_path_from_normalized(normalized_sheet, public_path),
+        sprite_id: Source.sprite_id_from_normalized(normalized_name)
       }
 
-    register_sprite_ref!(caller.module, normalized_name, normalized_sheet, source_root)
+    register_sprite_ref!(
+      caller.module,
+      normalized_name,
+      normalized_sheet,
+      source_root,
+      source_file_path
+    )
 
     quote do
       %SvgSpriteEx.SpriteRef{
         name: unquote(ref.name),
         sheet: unquote(ref.sheet),
-        sprite_id: unquote(ref.sprite_id),
-        href: unquote(ref.href)
+        sheet_public_path: unquote(ref.sheet_public_path),
+        sprite_id: unquote(ref.sprite_id)
       }
     end
   end
@@ -217,13 +223,14 @@ defmodule SvgSpriteEx.Ref do
         "inline_ref/1 only accepts compile-time literal string asset names"
       )
 
-    normalized_name = expand_literal_name!(literal_name, caller, source_root)
-    register_inline_ref!(caller.module, normalized_name, source_root)
+    {normalized_name, source_file_path} =
+      resolve_registered_source!(literal_name, caller, source_root)
+
+    register_inline_ref!(caller.module, normalized_name, source_root, source_file_path)
 
     quote do
       %SvgSpriteEx.InlineRef{
-        name: unquote(normalized_name),
-        registry: unquote(@inline_registry_module)
+        name: unquote(normalized_name)
       }
     end
   end
@@ -237,6 +244,12 @@ defmodule SvgSpriteEx.Ref do
       reraise CompileError,
               [file: caller.file, line: caller.line, description: Exception.message(error)],
               __STACKTRACE__
+  end
+
+  defp resolve_registered_source!(name, caller, source_root) do
+    normalized_name = expand_literal_name!(name, caller, source_root)
+    source_file_path = Source.source_file_path!(normalized_name, source_root)
+    {normalized_name, source_file_path}
   end
 
   defp expand_literal_string!(value, caller, message) do
@@ -301,16 +314,20 @@ defmodule SvgSpriteEx.Ref do
     end
   end
 
-  defp register_sprite_ref!(module, normalized_name, normalized_sheet, _source_root) do
+  defp register_sprite_ref!(
+         module,
+         normalized_name,
+         normalized_sheet,
+         _source_root,
+         source_file_path
+       ) do
     Module.put_attribute(module, :__sprite_refs__, {normalized_sheet, normalized_name})
+    Module.put_attribute(module, :external_resource, source_file_path)
   end
 
-  defp register_inline_ref!(module, normalized_name, _source_root) do
+  defp register_inline_ref!(module, normalized_name, _source_root, source_file_path) do
     Module.put_attribute(module, :__inline_refs__, normalized_name)
-  end
-
-  defp sprite_href_from_normalized(name, normalized_sheet, public_path) do
-    "#{sheet_public_path_from_normalized(normalized_sheet, public_path)}##{Source.sprite_id_from_normalized(name)}"
+    Module.put_attribute(module, :external_resource, source_file_path)
   end
 
   defp sheet_build_path_from_normalized(normalized_sheet, build_path) do
