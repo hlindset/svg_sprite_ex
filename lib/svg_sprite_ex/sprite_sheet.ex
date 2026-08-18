@@ -100,7 +100,7 @@ defmodule SvgSpriteEx.SpriteSheet do
        }) do
     view_box = resolve_view_box!(attributes, normalized_name)
     sprite_id = Source.sprite_id_from_normalized(normalized_name)
-    id_map = build_local_id_map(attributes, content_nodes, sprite_id)
+    id_map = build_local_id_map(attributes, content_nodes, sprite_id, normalized_name)
     rewritten_attributes = rewrite_symbol_attributes!(attributes, normalized_name, id_map)
     rendered_symbol_attrs = render_symbol_attrs(rewritten_attributes)
 
@@ -150,24 +150,16 @@ defmodule SvgSpriteEx.SpriteSheet do
     end
   end
 
-  defp build_local_id_map(attributes, content_nodes, sprite_id) do
+  defp build_local_id_map(attributes, content_nodes, sprite_id, normalized_name) do
     root_id = Map.get(attributes, "id")
 
-    id_map =
-      content_nodes
-      |> collect_local_ids(collect_root_id(attributes, MapSet.new()))
-      |> Map.new(fn id ->
-        rewritten_id =
-          if id == root_id do
-            sprite_id
-          else
-            "#{sprite_id}-#{id}"
-          end
-
-        {id, rewritten_id}
-      end)
-
-    id_map
+    content_nodes
+    |> collect_local_id_occurrences(collect_root_id_occurrence(attributes))
+    |> Enum.reverse()
+    |> validate_local_id_occurrences!(normalized_name)
+    |> Map.new(fn %{id: id} ->
+      {id, rewritten_local_id(id, root_id, sprite_id)}
+    end)
   end
 
   defp rewrite_symbol_attributes!(attributes, normalized_name, id_map) do
@@ -186,44 +178,86 @@ defmodule SvgSpriteEx.SpriteSheet do
     |> render_content_nodes()
   end
 
-  defp collect_root_id(attributes, acc) do
-    case Map.get(attributes, "id") do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> acc
-          normalized_id -> MapSet.put(acc, normalized_id)
-        end
-
-      _other ->
-        acc
+  defp collect_root_id_occurrence(attributes) do
+    case Map.fetch(attributes, "id") do
+      {:ok, id} -> [%{id: id, location: "root <svg>"}]
+      :error -> []
     end
   end
 
-  defp collect_local_ids([], acc), do: acc
+  defp collect_local_id_occurrences([], occurrences), do: occurrences
 
-  defp collect_local_ids([node | rest], acc) do
-    acc =
-      if xml_element_node?(node) do
-        node
-        |> xml_element(:attributes)
-        |> collect_ids_from_attributes(acc)
-        |> then(&collect_local_ids(xml_element(node, :content), &1))
-      else
-        acc
-      end
-
-    collect_local_ids(rest, acc)
+  defp collect_local_id_occurrences([node | rest], occurrences) do
+    occurrences = collect_element_id_occurrences(node, occurrences)
+    collect_local_id_occurrences(rest, occurrences)
   end
 
-  defp collect_ids_from_attributes(attributes, acc) do
-    Enum.reduce(attributes, acc, fn attribute, collected_ids ->
+  defp collect_element_id_occurrences(node, occurrences) do
+    case xml_element_node?(node) do
+      true ->
+        occurrences =
+          node
+          |> xml_element(:attributes)
+          |> collect_id_occurrence(element_id_location(node), occurrences)
+
+        collect_local_id_occurrences(xml_element(node, :content), occurrences)
+
+      false ->
+        occurrences
+    end
+  end
+
+  defp collect_id_occurrence(attributes, location, occurrences) do
+    Enum.reduce(attributes, occurrences, fn attribute, collected_occurrences ->
       case {attribute_name(attribute), attribute_value(attribute)} do
-        {"id", ""} -> collected_ids
-        {"id", value} -> MapSet.put(collected_ids, value)
-        _ -> collected_ids
+        {"id", id} -> [%{id: id, location: location} | collected_occurrences]
+        _other -> collected_occurrences
       end
     end)
   end
+
+  defp element_id_location(node) do
+    element_name = node |> xml_element(:name) |> Atom.to_string()
+    "<#{element_name}> at child position #{xml_element(node, :pos)}"
+  end
+
+  defp validate_local_id_occurrences!(occurrences, normalized_name) do
+    Enum.each(occurrences, &validate_local_id!(&1, normalized_name))
+
+    occurrences
+    |> Enum.group_by(& &1.id)
+    |> Enum.filter(fn {_id, id_occurrences} -> length(id_occurrences) > 1 end)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> case do
+      [] ->
+        occurrences
+
+      [{id, id_occurrences} | _rest] ->
+        locations = Enum.map_join(id_occurrences, ", ", & &1.location)
+
+        raise ArgumentError,
+              "svg asset #{inspect(normalized_name)} contains duplicate local id #{inspect(id)} at #{locations}"
+    end
+  end
+
+  defp validate_local_id!(%{id: "", location: location}, normalized_name) do
+    raise ArgumentError,
+          "svg asset #{inspect(normalized_name)} contains a local id at #{location} that must not be empty"
+  end
+
+  defp validate_local_id!(%{id: id, location: location}, normalized_name) do
+    case Regex.match?(~r/\s/u, id) do
+      true ->
+        raise ArgumentError,
+              "svg asset #{inspect(normalized_name)} contains local id #{inspect(id)} at #{location}; local ids must not contain whitespace"
+
+      false ->
+        :ok
+    end
+  end
+
+  defp rewritten_local_id(id, id, sprite_id), do: sprite_id
+  defp rewritten_local_id(id, _root_id, sprite_id), do: "#{sprite_id}-#{id}"
 
   defp rewrite_nodes!(nodes, normalized_name, id_map) do
     Enum.map(nodes, &rewrite_node!(&1, normalized_name, id_map))

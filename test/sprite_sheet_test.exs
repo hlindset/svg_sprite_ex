@@ -649,6 +649,73 @@ defmodule SvgSpriteEx.SpriteSheetTest do
     assert sprite_sheet =~ ~s(href="other.svg#shape")
   end
 
+  test "build rejects duplicate child local ids with their locations" do
+    svg_source_root = unique_tmp_dir!("duplicate-child-ids")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/duplicate_children.svg"),
+      """
+      <svg viewBox="0 0 24 24">
+        <path id="shape" />
+        <circle id="shape" />
+      </svg>
+      """
+    )
+
+    error =
+      assert_raise ArgumentError, fn ->
+        SpriteSheet.build(["icons/duplicate_children"], source_root: svg_source_root)
+      end
+
+    assert Exception.message(error) =~
+             ~r/svg asset "icons\/duplicate_children" contains duplicate local id "shape".*path.*circle/
+  end
+
+  test "build rejects root and child local id collisions with their locations" do
+    svg_source_root = unique_tmp_dir!("duplicate-root-id")
+    File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+    File.write!(
+      Path.join(svg_source_root, "icons/duplicate_root.svg"),
+      """
+      <svg id="shape" viewBox="0 0 24 24">
+        <path id="shape" />
+      </svg>
+      """
+    )
+
+    error =
+      assert_raise ArgumentError, fn ->
+        SpriteSheet.build(["icons/duplicate_root"], source_root: svg_source_root)
+      end
+
+    assert Exception.message(error) =~
+             ~r/svg asset "icons\/duplicate_root" contains duplicate local id "shape".*root.*path/
+  end
+
+  test "build rejects empty and whitespace-containing local ids" do
+    Enum.each(
+      [
+        {"empty", "", "must not be empty"},
+        {"whitespace", "two words", "must not contain whitespace"}
+      ],
+      fn {fixture, id, expected_message} ->
+        svg_source_root = unique_tmp_dir!("invalid-#{fixture}-id")
+        File.mkdir_p!(Path.join(svg_source_root, "icons"))
+
+        File.write!(
+          Path.join(svg_source_root, "icons/#{fixture}.svg"),
+          ~s(<svg viewBox="0 0 24 24"><path id="#{id}" /></svg>)
+        )
+
+        assert_raise ArgumentError, ~r/#{expected_message}/, fn ->
+          SpriteSheet.build(["icons/#{fixture}"], source_root: svg_source_root)
+        end
+      end
+    )
+  end
+
   test "build still raises for missing local reference targets" do
     svg_source_root = unique_tmp_dir!("missing-local-refs")
     File.mkdir_p!(Path.join(svg_source_root, "icons"))
